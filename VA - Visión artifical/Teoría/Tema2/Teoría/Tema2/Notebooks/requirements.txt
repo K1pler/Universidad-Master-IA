@@ -1,0 +1,22 @@
+# =============================================================================
+# Requerimientos para los Notebooks de Visión Artificial (Sesiones 1-4)
+# Universidad de Murcia - Máster en Inteligencia Artificial
+# =============================================================================
+
+# Columna vertebral matemática y álgebra lineal
+numpy>=1.20.0
+scipy>=1.7.0
+
+# Visión artificial industrial y procesamiento de imagen
+opencv-python>=4.5.0
+
+# Visualización y gráficos
+matplotlib>=3.4.0
+
+# Entorno de desarrollo interactivo
+jupyter>=1.0.0
+
+# Paquetes de interactividad y Jupyter Widgets (Esenciales para sliders,
+# selección manual de puntos en imágenes y visualizaciones 3D dinámicas)
+ipywidgets>=7.6.0
+ipympl>=0.8.0

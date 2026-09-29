@@ -1,0 +1,6 @@
+# Lab1_TutorialTensoresBasico.ipynb
+# pip install -r requirements_Lab1.txt
+
+torch>=2.0
+numpy>=1.24
+jupyter>=1.0
