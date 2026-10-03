@@ -1,0 +1,1532 @@
+/*
+ * (c) 1997-2001 Humberto Martinez
+ * (c) 2002 Juan Pedro Canovas, Humberto Martinez
+ * (c) 2003 Bernardo Canovas, Humberto Martinez
+ * (c) 2004 Humberto Martinez
+ */
+
+package tcapps.tcsimulator.simulator;
+
+import java.util.Random;
+
+import tc.shared.world.World;
+import tc.vrobot.RobotData;
+import tc.vrobot.RobotDataCtrl;
+import tc.vrobot.RobotDesc;
+import tc.vrobot.RobotModel;
+import tc.vrobot.SensorPos;
+import tc.vrobot.TrackerData;
+import tc.vrobot.models.TricycleDrive;
+import tcapps.tcsimulator.simulator.objects.SimCargo;
+import tcapps.tcsimulator.simulator.objects.SimObject;
+import tcapps.tcsimulator.simulator.objects.SimObjects;
+import tclib.utils.pos.Position;
+import tclib.utils.pos.UTMPos;
+import wucore.utils.geom.Line2;
+import wucore.utils.geom.Point2;
+import wucore.utils.math.Angles;
+import wucore.utils.math.stat.RandomNumberGenerator;
+import devices.data.CompassData;
+import devices.data.GPSData;
+import devices.data.InsData;
+
+public class Simulator
+{
+	static public final int			MAX_ROBOTS	= 20;
+	
+	public static final int			S_GEOM		= 0;		// Geometrical sonar simulation
+	public static final int			S_GALLARDO	= 2;		// Gallardo (Watt & Watt) sonar simulation
+	public static final int			S_EXACT		= 3;		// Exact geometrical sonar measures
+	
+	public static final int			I_GEOM		= 0;		// Geometrical ir simulation
+	public static final int			I_EXACT		= 1;		// Exact geometrical ir measures
+	public static final int			I_SHARP		= 2;		// Sharp GP2D02 ir simulation
+	
+	public static final int			LRF_GEOM		= 0;		// Geometrical lrf simulation
+	public static final int			LRF_EXACT	= 1;		// Exact geometrical lrf measures
+	public static final int			LRF_GAUSS	= 2;		// GAUSS lrf measures
+	
+	public static final int			LSB_GEOM		= 0;		// Geometrical laser beacom simulation
+	public static final int			LSB_EXACT	= 1;		// Exact geometrical laser beacom measures
+	public static final int			LSB_GAUSS	= 2;		// GAUSS laser beacom measures
+		
+	protected static final int		MAXDEPTH		= 5;		// Maximum number of ray reflections
+	/**
+	 * How often what the simulation has (the poses of the robots and the objects)
+	 * is handed to the windows to be drawn, plan view and 3D (ms). The robots
+	 * move every cycle of their modules (100 ms, as a rule): handed over slower
+	 * than that, they were seen to jump from one pose to the one two or three
+	 * cycles later; at this rate every pose is drawn.
+	 */
+	public static final int 		GFX3D_UPD 	= 40;
+	private static int				MOVE_OBJECT_TIME	= 200;  //millis
+
+	// Simulation parameters
+	private double[]				tof;					// Time-of-flight buffers for sonar
+	private Random					rnd;					// Pseudo-random number generator
+	protected long					tgfx;				// Time of graphics update
+	protected RandomNumberGenerator rndg; 				// Generator of Random Number for LRF
+	
+	// Simulated world components
+	public SimObjects				objects;				// Animated objects of the world (null until a world is set)
+	protected World					map;
+	protected String				mapfile;
+	protected int					roboindex	= -1;
+	protected Position				bpos;
+	
+	private int						iconcount;
+	private boolean[]				objects3D;
+	public Line2[][]				icons;
+	
+	// Robots internal data
+	public SimulatorDesc[]			SDESC;
+	public RobotDesc[]				RDESC;
+	public RobotModel[]				MODEL;
+	public String[]					NAMES		= new String[MAX_ROBOTS];		// what each robot is called (the deployment's name), or null
+	protected double[][][]			BODY		= new double[MAX_ROBOTS][][];	// what each robot collides as (see body ()), made when first needed
+	protected double[][]			CMD			= new double[MAX_ROBOTS][3];	// the last control action of each robot: vlin, vlat (m/s), vrot (rad/s)
+
+	/** The last control action of a robot, {vlin, vlat, vrot} (m/s, m/s, rad/s): what an articulated robot is seen walking with. */
+	public double[] commands (int i)
+	{
+		return ((i >= 0) && (i < MAX_ROBOTS)) ? CMD[i] : new double[3];
+	}
+
+	/**
+	 * Whether the actuators of the robots (the fork of a forklift, the arm of a
+	 * manipulator) collide with what is in the world. Off, a robot with an
+	 * actuator collides as its body alone, and puts its fork under a pallet
+	 * without being pushed off it. Set in code; off until it is needed.
+	 */
+	static public boolean			COLLIDE_ACTUATORS	= false;
+	public double[][]				START		= new double[MAX_ROBOTS][];		// where each robot starts (x, y, a), as it was last put there at a reset
+
+	/** Where the i-th robot starts, as {x, y, a}: where it was put at its last reset, or null when it never was. */
+	public double[] startPose (int i)
+	{
+		return ((i >= 0) && (i < MAX_ROBOTS)) ? START[i] : null;
+	}
+
+	/**
+	 * The i-th start point of the world, as {x, y, a}: the ones past the robots
+	 * are where a referee may send a robot to. Null when the world has no such
+	 * point (or no world yet).
+	 */
+	public double[] worldStart (int i)
+	{
+		if ((map == null) || (i < 0) || (i >= map.n_starts ()))		return null;
+
+		tc.shared.world.WMStart	st = map.start (i);
+
+		return new double[] { st.x (), st.y (), st.orientation };
+	}
+
+	/** Puts a robot back where it starts (see {@link #placeRobot}: only where it is changes). Whether it could be. */
+	public boolean restartRobot (int i)
+	{
+		double[]	p = startPose (i);
+
+		if (p == null)					return false;
+		placeRobot (i, p[0], p[1], p[2]);
+		return true;
+	}
+
+	/** What the i-th robot is called, its number when it has no name. */
+	public String robotName (int i)
+	{
+		return ((i >= 0) && (i < numrobots) && (NAMES[i] != null)) ? NAMES[i] : ("robot " + i);
+	}
+	public RobotDataCtrl[]			DATA_CTRL;
+	public int[]					ROBOINDEX;
+	protected Line2[][]				OUTLINE;		// what each robot occupies in the simulation (collisions, what the sensors of the others meet): its icon, or the circle of its radius when it has none
+	public Position[][]				VISOBJS;
+	public Position[]				VISPOS;
+	public int						numrobots;
+	public RobotData[] 				lastRobotData; // Stores the last 'RobotData' object received from "SimulatedRobot" to allow 3D representation in the "RefreshThread"
+	protected double[][]			campan;			// how the cameras of each robot are turned now (rad), by robot and camera; null rows: never turned
+	protected double[][]			camtilt;
+	
+	// Simulated world visualization
+	protected SimulatorListener 		win;
+	
+	public int[] 					objectPicked; // Indexed by robot id, this array contains the id of the object that the robot has picked. -1 if no object has been picked 
+	
+	private Runnable refreshThread = new Runnable ()
+	{
+		public void run ()
+		{
+			int i;
+			
+			System.out.println ("  [SIM-Refresh] Refresh thread started.");
+			while (win != null)
+			{
+				for (i=0; i < numrobots; i++)
+				{
+					if (lastRobotData[i]!=null)
+						win.updateData(i,lastRobotData[i]);
+				}
+
+				SimObjects	objs = objects;
+				if (objs != null)
+					for (i = 0; i < objs.numobjects; i++)
+						win.updateObjectData (objs.OBJS[i].idsimul, objs.OBJS[i].odesc.pos, objs.OBJS[i].odesc.a);
+				
+				win.repaint ();
+				
+				try {
+					synchronized (this)
+					{
+						this.wait(GFX3D_UPD);
+					}
+				} catch (Exception e) { e.printStackTrace(); };
+				
+			}
+		}	
+	};
+		
+	// Constructors
+	public Simulator ()
+	{
+		int			i;
+		
+		// Initialise additional parameters and data
+		rnd 		= new Random ();
+		tgfx		= 0;
+		rndg		= new RandomNumberGenerator ();
+		
+		RDESC		= new RobotDesc[MAX_ROBOTS];
+		SDESC		= new SimulatorDesc[MAX_ROBOTS];
+		MODEL		= new RobotModel[MAX_ROBOTS];
+		DATA_CTRL	= new RobotDataCtrl[MAX_ROBOTS];
+		ROBOINDEX	= new int[MAX_ROBOTS];
+		OUTLINE		= new Line2[MAX_ROBOTS][];
+		VISOBJS		= new Position[MAX_ROBOTS][];
+//		VISOBJS		= new Hashtable[MAX_ROBOTS];
+		VISPOS		= new Position[MAX_ROBOTS];
+		numrobots	= 0;
+		iconcount 	= 0;	
+		objects3D	= new boolean[MAX_ROBOTS];
+		icons 		= new Line2[MAX_ROBOTS][];
+		bpos		= new Position ();		
+		lastRobotData = new RobotData[MAX_ROBOTS];
+		campan		= new double[MAX_ROBOTS][];
+		camtilt		= new double[MAX_ROBOTS][];
+		objectPicked = new int[MAX_ROBOTS];		
+		for (i = 0; i < MAX_ROBOTS; i++)
+		{
+			VISPOS[i]	= new Position ();
+			objectPicked[i] = -1;
+		}
+
+		map = null;
+	}
+	
+	/* Class methods */
+	static protected double sqr (double x)
+	{
+		return x * x;
+	}
+
+	// Accessors
+	public World			getWorld ()												{ return map; }
+	public String			getWorldName ()											{ return mapfile; }
+	public void				set_data_ctrl (int robotind, RobotDataCtrl datactrl)	{ DATA_CTRL[robotind] = datactrl; }
+	public void				closeVisualization3D ()									{ this.win = null; }	
+
+	/** Stops the simulation of the animated objects (the simulator is being discarded). */
+	public void				dispose ()												{ if (objects != null) objects.stop (); objects = null; win = null; }
+	
+	// Instance methods
+//	public int allocIcon ()
+//	{
+//		iconcount ++;
+//		
+//		return iconcount-1;
+//	}
+	
+	public int allocIcon(){
+		int index,i;
+//		 Assign an index number to object
+		index	= -1;
+		for (i = 0; i < iconcount; i++)
+			if (!objects3D[i])
+				index = i;
+		if (index == -1){
+			index	= iconcount;
+			iconcount ++;
+		}
+		if (index >= icons.length)			// grow: robots plus as many objects as the world has
+		{
+			Line2[][]	ni = new Line2[index + MAX_ROBOTS][];
+			boolean[]	no = new boolean[index + MAX_ROBOTS];
+			System.arraycopy (icons, 0, ni, 0, icons.length);
+			System.arraycopy (objects3D, 0, no, 0, objects3D.length);
+			icons		= ni;
+			objects3D	= no;
+		}
+		objects3D[index]=true;
+		return index;
+	}
+
+	public void moveIcon (int index, Line2[] icon, double rx, double ry, double alpha) 
+	{
+		int			i;
+		double		x1, y1;
+		double		x2, y2;
+		double		xa,	ya, xb,yb;
+		double		l1, l2, r1, r2;
+		Line2		line;
+		
+		// the sensor threads of the robots read icons[index] concurrently: build the new segments
+		// apart and publish the complete array at the end (filling it in place left null entries)
+		Line2[]		moved = new Line2[icon.length];
+		for (i = 0; i < icon.length; i++)
+		{
+			line		= icon[i];
+
+			xa	= line.orig().x();
+			ya	= line.orig().y();
+			xb	= line.dest().x();
+			yb	= line.dest().y();
+			
+			l1	= Math.sqrt (xa * xa + ya * ya);
+			r1	= Math.atan2 (ya, xa) + alpha;
+			
+			l2	= Math.sqrt (xb * xb + yb * yb);
+			r2	= Math.atan2 (yb, xb) + alpha;
+			
+			x1	= rx + l1 * Math.cos (r1); 
+			y1	= ry + l1 * Math.sin (r1); 
+			x2	= rx + l2 * Math.cos (r2); 
+			y2	= ry + l2 * Math.sin (r2); 
+			
+			moved[i]	= new Line2 (x1,y1,x2,y2);
+		}
+		icons[index]	= moved;
+	}
+
+	/**
+	 * The edge closest to an animated object among the walls and the other
+	 * objects (not itself, whose icon is index, nor the robots: an object meets
+	 * a robot as the disc it is, see SimObjects).
+	 */
+	public Line2 closerObstacle (SimObject obj, int index)
+	{
+		Line2[][]	others = new Line2[iconcount][];
+		int			n = 0;
+
+		for (int k = 0; k < iconcount; k++)
+		{
+			boolean		robot = false;
+			for (int i = 0; i < numrobots; i++)
+				if (ROBOINDEX[i] == k)		robot = true;
+			if ((k != index) && !robot && (icons[k] != null))
+				others[n++]	= icons[k];
+		}
+		return map.closer (obj.odesc.pos.x (), obj.odesc.pos.y (), others, n, -1);
+	}
+	
+	public void setVisualization (SimulatorListener win) 
+	{ 
+		int			i;
+		
+		this.win = win;
+		
+		if (map!=null)
+			win.setWorldmap(map);
+		for (i=0;i<numrobots;i++)
+			win.addRobot(RDESC[i],SDESC[i]);
+		reportObjects ();
+		win.repaint();	
+		new Thread (refreshThread).start ();
+	}
+
+	/** Puts an animated object where a hand on the visualisation left it (see SimObjects.place). */
+	/**
+	 * Takes note of how a camera of a robot is turned on its mount (pan to the
+	 * left, tilt upwards, rad), as the robot turns it before taking a frame, for
+	 * whoever draws the robot (the prism of the camera in the 3D world).
+	 */
+	public void cameraTurned (int robot, int dev, double pan, double tilt)
+	{
+		if ((robot < 0) || (robot >= MAX_ROBOTS) || (dev < 0))		return;
+		if ((campan[robot] == null) || (dev >= campan[robot].length))
+		{
+			int			n = Math.max (dev + 1, ((RDESC[robot] != null) ? RDESC[robot].MAXCAMERA : 0));
+			double[]	p = new double[n], t = new double[n];
+
+			if (campan[robot] != null)
+			{
+				System.arraycopy (campan[robot], 0, p, 0, campan[robot].length);
+				System.arraycopy (camtilt[robot], 0, t, 0, camtilt[robot].length);
+			}
+			campan[robot]	= p;
+			camtilt[robot]	= t;
+		}
+		campan[robot][dev]	= pan;
+		camtilt[robot][dev]	= tilt;
+	}
+
+	/** How the cameras of a robot are turned now, pan of each (rad), or null when none was ever turned. */
+	public double[] cameraPans (int robot)		{ return ((robot >= 0) && (robot < MAX_ROBOTS)) ? campan[robot] : null; }
+	/** ... and the tilt of each. */
+	public double[] cameraTilts (int robot)		{ return ((robot >= 0) && (robot < MAX_ROBOTS)) ? camtilt[robot] : null; }
+
+	/**
+	 * Puts a robot at a pose by hand, as one is picked up and set down while the
+	 * simulation runs, or by a referee: only where the simulation has it changes,
+	 * and what the visualisation shows of it. Where the robot thinks it is (its
+	 * odometry, and so its LPS) goes on as it was: the robot is not told, as a real
+	 * one is not, and its localisation has to find it out from what it sees. Its
+	 * speed goes on as it was.
+	 */
+	synchronized public void placeRobot (int i, double x, double y, double a)
+	{
+		if ((i < 0) || (i >= numrobots) || (MODEL[i] == null))		return;
+
+		RobotData	data = lastRobotData[i];					// the data of the cycle (its real pose goes there too)
+
+		MODEL[i].relocate (data, x, y, a);
+		if (data != null)
+		{
+			data.real_x	= x;
+			data.real_y	= y;
+			data.real_a	= a;
+		}
+	}
+
+	public void placeObject (int i, double x, double y, double a)
+	{
+		SimObjects	objs = objects;
+
+		if (objs != null)		objs.place (i, x, y, a);
+	}
+
+	/** Gives the animated objects to the visualisation (all of them, replacing the previous ones). */
+	protected void reportObjects ()
+	{
+		if (win == null)			return;
+		win.removeAllObjects ();
+		if (objects == null)		return;
+		for (int i = 0; i < objects.numobjects; i++)
+			objects.OBJS[i].idsimul = win.addObject (objects.OBJS[i]);
+	}
+	
+	/** Segments of the circle of the radius of a robot that has no icon (a robot drawn by its image or its 3D model alone). */
+	static public final int			OUTLINE_SIDES	= 24;
+
+	/**
+	 * What a robot occupies in the simulation, in its own frame: the segments of its
+	 * icon, or, when it has none (a robot shown by its image or its 3D model), the
+	 * circle of its radius as a polygon of {@link #OUTLINE_SIDES} sides -- the same
+	 * circle the views draw it as then. Nothing when it has neither.
+	 */
+	static public Line2[] outline (RobotDesc rdesc)
+	{
+		Line2[]		o;
+		double		r;
+
+		if ((rdesc.icon != null) && (rdesc.icon.length > 0))		return rdesc.icon;
+		r	= rdesc.RADIUS;
+		if (r <= 0.0)							return new Line2[0];
+		o	= new Line2[OUTLINE_SIDES];
+		for (int i = 0; i < OUTLINE_SIDES; i++)
+		{
+			double	a0 = 2.0 * Math.PI * i / OUTLINE_SIDES, a1 = 2.0 * Math.PI * (i + 1) / OUTLINE_SIDES;
+
+			o[i]	= new Line2 ();
+			o[i].set (r * Math.cos (a0), r * Math.sin (a0), r * Math.cos (a1), r * Math.sin (a1));
+		}
+		return o;
+	}
+
+	synchronized public int add_robot (RobotDesc rdesc, SimulatorDesc sdesc, RobotModel model, RobotDataCtrl datactrl)
+	{
+		return add_robot (rdesc, sdesc, model, datactrl, null);
+	}
+
+	/** Adds a robot with its name (shown by the visualisation). */
+	synchronized public int add_robot (RobotDesc rdesc, SimulatorDesc sdesc, RobotModel model, RobotDataCtrl datactrl, String name)
+	{
+		NAMES[numrobots] = name;
+		RDESC[numrobots] = rdesc;
+		SDESC[numrobots] = sdesc;
+		MODEL[numrobots] = model;
+		DATA_CTRL[numrobots] = datactrl;
+		ROBOINDEX[numrobots] = allocIcon ();		
+		OUTLINE[numrobots] = outline (rdesc);
+		moveIcon (ROBOINDEX[numrobots], OUTLINE[numrobots], model.real_x, model.real_y, model.real_a);
+		
+		if (win!=null)
+			win.addRobot (rdesc, sdesc, name);
+
+		return (numrobots++);				
+	}
+	
+	public void setWorld (String wname)
+	{
+		if (wname == null)
+		{
+			System.out.println ("  [SIM] Using no world");
+			map			= new World ();
+		}
+		else
+		{
+			System.out.println ("  [SIM] Loading world-> "+wname);
+			try 
+			{
+				map			= new World (wname);
+			} catch (Exception e)
+			{
+				System.out.println ("--[SIM] Error loading world <"+wname+">");
+				e.printStackTrace();
+				map			= new World ();
+			}
+		}
+		mapfile = wname;
+
+		// the animated objects of the world are simulated from now on
+		if (objects != null)		objects.stop ();
+		objects	= new SimObjects (map, this);
+		for (int i = 0; i < MAX_ROBOTS; i++)		objectPicked[i] = -1;		// loads of the previous world
+						
+		if (this.win != null)
+		{
+			win.setWorldmap(map);		
+			reportObjects ();
+		}
+	}
+	
+	protected double sonar (SensorPos a1)
+	{
+		double			son;
+		
+		if (map == null) 		return 0.0;
+		
+		switch (SDESC[roboindex].MODESON)
+		{
+			case S_GALLARDO:
+				son = s_gallardo (a1);
+				break;
+			case S_EXACT:
+				son = s_exact (a1);
+				break;
+			case S_GEOM:
+			default:
+				son = s_geom (a1);
+		}
+		
+		return son;
+	}		
+	
+	private double s_exact (SensorPos a1)
+	{
+		double			xx1, yy1;
+		double			xx2, yy2;
+		double			a, a2, step;
+		double			dist, tdist;
+		double			rlen;
+		Line2			rout, wall;
+		Point2			p;
+		
+		
+		xx1		= MODEL[roboindex].real_x + a1.rho () * Math.cos (MODEL[roboindex].real_a + a1.theta ());
+		yy1		= MODEL[roboindex].real_y + a1.rho () * Math.sin (MODEL[roboindex].real_a + a1.theta ());
+		
+		a2		= RDESC[roboindex].CONESON / 2.0;
+		rlen	= RDESC[roboindex].RANGESON * 2.0;
+		step		= (a2 * 2.0) / (double) (SDESC[roboindex].RAYSON - 1);
+		dist		= Double.MAX_VALUE;
+		rout		= new Line2 ();
+		for (a = -a2; a <= a2; a += step)
+		{
+			xx2		= xx1 + rlen * Math.cos (MODEL[roboindex].real_a + a1.orientation () + a);
+			yy2		= yy1 + rlen * Math.sin (MODEL[roboindex].real_a + a1.orientation () + a);	
+			tdist	= RDESC[roboindex].RANGESON;
+			
+			rout.set (xx1, yy1, xx2, yy2);
+			wall 		= map.crossline (rout, icons, iconcount, ROBOINDEX[roboindex]);						
+			if (wall == null)									
+				break;
+			else
+			{				
+				p		= rout.intersection (wall);
+				if (p != null)	tdist 	= p.distance (xx1, yy1);
+			}
+			dist 		= Math.min (dist, tdist);
+		}
+		
+		return dist;
+	}		
+	
+	private double s_geom (SensorPos a1)
+	{
+		double			dist;
+		
+		dist = s_exact (a1);
+		dist	= (1.0 - SDESC[roboindex].ERRORSON) * dist + (2.0 * SDESC[roboindex].ERRORSON * Math.random () - SDESC[roboindex].ERRORSON) * dist;
+		return Math.min (Math.max (dist, RDESC[roboindex].MINIMSON), RDESC[roboindex].RANGESON);
+	}		
+	
+	private double s_gallardo (SensorPos a1)
+	{
+		double			aa1;
+		double			xx1, yy1;
+		double			xx2, yy2;
+		double			rho0, nu0;
+		double			rhoi, delta, beta;
+		double			dist, a, drhoi;
+		double			dout, dk, dn;
+		double			min, count, wgt;
+		double			rlen;
+		Line2			sensor, wall, aux;
+		Line2			rout, rin, rref;
+		Point2			p;
+		int				depth;
+		int				i;
+		boolean			reach;
+		
+		tof			= new double[SDESC[roboindex].RAYSON];
+		
+		sensor	= new Line2 ();
+		rout	= new Line2 ();
+		rin		= new Line2 ();
+		aux		= new Line2 ();
+		
+		rho0	= RDESC[roboindex].CONESON;
+		nu0		= RDESC[roboindex].CONESON;
+		delta	= rho0 / (double) (SDESC[roboindex].RAYSON - 1);
+		rlen	= RDESC[roboindex].RANGESON * 2.0;
+		
+		aa1		= a1.orientation ();
+		xx1		= MODEL[roboindex].real_x + a1.rho () * Math.cos (MODEL[roboindex].real_a + a1.theta ());
+		yy1		= MODEL[roboindex].real_y + a1.rho () * Math.sin (MODEL[roboindex].real_a + a1.theta ());
+		xx2		= xx1 + rlen * Math.cos (MODEL[roboindex].real_a + aa1);	
+		yy2		= yy1 + rlen * Math.sin (MODEL[roboindex].real_a + aa1);		
+		sensor.set (xx1, yy1, xx2, yy2);
+		
+		for (rhoi = (aa1 - rho0 / 2.0), i = 0; i < SDESC[roboindex].RAYSON; rhoi += delta, i++)
+		{
+			reach	= false;
+			depth	= 0;
+			tof[i]	= 0.0;
+			xx2		= xx1 + rlen * Math.cos (MODEL[roboindex].real_a + rhoi);	
+			yy2		= yy1 + rlen * Math.sin (MODEL[roboindex].real_a + rhoi);		
+			drhoi	= rhoi - aa1;
+			rout.set (xx1, yy1, xx2, yy2);
+			
+			while (depth < MAXDEPTH)
+			{		
+				wall 	= map.crossline (rout, icons, iconcount, ROBOINDEX[roboindex]);		
+				if (wall == null)				
+					break;
+				
+				p		= rout.intersection (wall);
+				dout	= wall.angle_norm (rout);
+				aux.set (rout.orig (), p);
+				beta	= 2.0 * (Math.PI - dout);	
+				rref	= rout.reflection (p, beta, rlen);	
+				rin.set (xx1, yy1, p.x (), p.y ());
+				
+				dk		= Angles.radnorm_90 (rref.angle_norm (rin));
+				dn		= Angles.radnorm_90 (sensor.angle_norm (rin));
+				drhoi	= Angles.radnorm_90 (drhoi);
+				a		= Math.exp (-2.0 * (sqr (drhoi / rho0) + sqr (dn / rho0) + sqr (dk / nu0)));
+				
+				if (a > SDESC[roboindex].SENSIBSON)   
+				{
+					tof[i]	= (tof[i] + p.distance (rout.orig ()) + p.distance (xx1, yy1)) / 2.0;	
+					reach	= true;
+					break;
+				}
+				else
+				{
+					tof[i]	+= p.distance (rout.orig ());	
+					rout.set (rref);
+					depth ++;
+				} 
+			}
+			if (!reach) tof[i] = RDESC[roboindex].RANGESON;
+		}
+		
+		// Compute the minimum lenght ray
+		min 	= RDESC[roboindex].RANGESON;
+		for (i = 0; i < SDESC[roboindex].RAYSON; i++)
+			if (tof[i] < min) min = tof[i];
+			
+			// Average the rays which differ less than 5%
+		dist 	= 0.0;
+		count	= 0.0;
+		for (i = 0; i < SDESC[roboindex].RAYSON; i++)
+			if (tof[i] - min < 0.10)
+			{
+				wgt = 1.0 - Math.abs ((double) SDESC[roboindex].RAYSON / 2.0 - (double) i) * delta * delta;
+				dist += wgt * tof[i];
+				count += wgt;
+			}
+		if (count == 0.0)												// Humberto's modified model
+			dist = RDESC[roboindex].RANGESON;
+		else
+			dist = Math.max (dist / count, RDESC[roboindex].MINIMSON);	
+//		dist = Math.max (min, rdesc.MINIMSON);							// Gallardo's original model
+		
+		return dist;
+	}		
+	
+	protected double ir (SensorPos a1)
+	{
+		double			ir;
+		
+		if (map == null) 		return 0.0;
+		
+		switch (SDESC[roboindex].MODEIR)
+		{
+			case I_SHARP:
+				ir = i_sharp (a1);
+				break;
+			case I_EXACT:
+				ir = i_exact (a1);
+				break;
+			case I_GEOM:
+			default:
+				ir = i_geom (a1);
+		}
+		
+		return ir;
+	}		
+	
+	private double i_exact (SensorPos a1)
+	{
+		double			xx1, yy1;
+		double			xx2, yy2;
+		double			a, a2, step;
+		double			dist, tdist;
+		double			rlen;
+		Line2			rout, wall;
+		Point2			p;
+		
+		xx1		= MODEL[roboindex].real_x + a1.rho () * Math.cos (MODEL[roboindex].real_a + a1.theta ());
+		yy1		= MODEL[roboindex].real_y + a1.rho () * Math.sin (MODEL[roboindex].real_a + a1.theta ());
+		
+		a2		= RDESC[roboindex].CONEIR / 2.0;
+		rlen	= RDESC[roboindex].RANGEIR * 2.0;
+		step	= (a2 * 2.0) / (double) (SDESC[roboindex].RAYIR- 1);
+		dist	= Double.MAX_VALUE;
+		rout	= new Line2 ();
+		for (a = -a2; a <= a2; a += step)
+		{
+			xx2		= xx1 + rlen * Math.cos (MODEL[roboindex].real_a + a1.orientation () + a);
+			yy2		= yy1 + rlen * Math.sin (MODEL[roboindex].real_a + a1.orientation () + a);	
+			tdist	= RDESC[roboindex].RANGEIR;
+			
+			rout.set (xx1, yy1, xx2, yy2);
+			wall 	= map.crossline (rout, icons, iconcount, ROBOINDEX[roboindex]);						
+			if (wall == null)									
+				break;
+			else
+			{				
+				p		= rout.intersection (wall);
+				if (p != null)	tdist 	= p.distance (xx1, yy1);
+			}
+			dist 	= Math.min (dist, tdist);
+		}
+		
+		return dist;
+	}		
+	
+	private double i_geom (SensorPos a1)
+	{
+		double			dist;
+		
+		dist = i_exact (a1);
+		dist	= (1.0 - SDESC[roboindex].ERRORIR) * dist + (2.0 * SDESC[roboindex].ERRORIR * Math.random () - SDESC[roboindex].ERRORIR) * dist;
+		return Math.min (Math.max (dist, RDESC[roboindex].MINIMIR), RDESC[roboindex].RANGEIR);
+	}		
+	
+	private double i_sharp (SensorPos a1)
+	{
+		double			dec;
+		double			dist, rdist;
+		
+		rdist = i_exact (a1) * 100.0;
+		if (rdist < 25.0)									// Sharp GP2D02 IR linearized MODEL[roboindex]
+		{
+			dec		= Math.rint (-5.3333 * rdist + 253.3333);
+			dist	= (253.3333 - dec) / 5.3333;
+		}
+		else if (rdist < 60.0)
+		{
+			dec		= Math.rint (-1.1428 * rdist + 148.5714);
+			dist	= (148.5714 - dec) / 1.1428;
+		}
+		else
+		{
+			dec		= Math.rint (-0.25 * rdist + 95.0);
+			dist	= (95.0 - dec) / 0.25;
+		}
+		
+		dist	= dist / 100.0;
+		return Math.min (Math.max (dist, RDESC[roboindex].MINIMIR), RDESC[roboindex].RANGEIR);
+	}		
+	
+	protected double[] lrf (SensorPos a1)
+	{
+		double			lrf[];
+		
+		if (map == null) 		return null;
+		
+		switch (SDESC[roboindex].MODELRF)
+		{
+			case LRF_EXACT:
+				lrf = lrf_exact (a1);
+				break;
+			case LRF_GAUSS:
+				lrf = lrf_gauss (a1);
+				break;
+			case LRF_GEOM:
+			default:
+				lrf = lrf_geom (a1);
+		}
+		
+		return lrf;
+	}
+	
+	private double[] lrf_exact (SensorPos a1)
+	{
+		int 			i;
+		double			xx1, yy1;
+		double			xx2, yy2;
+		double			a, a2, step;
+		double			tdist;
+		double			rlen;
+		double[]		lrf_measures;
+		Line2			rout, wall;
+		Point2			p;
+		
+		xx1		= MODEL[roboindex].real_x + a1.rho () * Math.cos (MODEL[roboindex].real_a + a1.theta ());
+		yy1		= MODEL[roboindex].real_y + a1.rho () * Math.sin (MODEL[roboindex].real_a + a1.theta ());
+		
+		lrf_measures = new double[RDESC[roboindex].RAYLRF];
+		a2		= RDESC[roboindex].CONELRF * 0.5;
+		rlen	= RDESC[roboindex].RANGELRF * 2.0;
+		step	= RDESC[roboindex].CONELRF / (double) (RDESC[roboindex].RAYLRF - 1);
+		rout	= new Line2 ();
+		
+		for (i = 0, a = -a2; i < RDESC[roboindex].RAYLRF; i++, a += step)
+		{
+			xx2		= xx1 + rlen * Math.cos (MODEL[roboindex].real_a + a1.orientation () + a);
+			yy2		= yy1 + rlen * Math.sin (MODEL[roboindex].real_a + a1.orientation () + a);	
+			tdist	= RDESC[roboindex].RANGELRF;
+			
+			rout.set (xx1, yy1, xx2, yy2);
+			wall 	= map.crossline (rout, icons, iconcount, ROBOINDEX[roboindex]);						
+			if (wall != null)									
+			{				
+				p		= rout.intersection (wall);
+				if (p != null)	tdist 	= p.distance (xx1, yy1);
+			}
+			lrf_measures[i] = tdist;					
+		}
+		
+		return lrf_measures;
+	}
+	
+	private double[] lrf_geom (SensorPos a1)
+	{
+		int 				a;
+		double[]			dist;
+		
+		dist = lrf_exact (a1);
+		
+		for (a = 0; a < RDESC[roboindex].RAYLRF; a++) {
+			dist[a]	= (1.0 - SDESC[roboindex].ERRORLRF) * dist[a] + (2.0 * SDESC[roboindex].ERRORLRF * Math.random () - SDESC[roboindex].ERRORLRF) * dist[a];
+		}
+		return dist;
+	}		
+	
+	private double[] lrf_gauss (SensorPos a1)
+	{
+		int 				a;
+		double[]			dist;
+		
+		dist = lrf_exact (a1);
+		
+		for (a = 0; a < RDESC[roboindex].RAYLRF; a++) {
+			dist[a] = rndg.nextGaussian (dist[a],SDESC[roboindex].ERRORLRFGAUSS);
+		}
+		return dist;
+	}
+	
+//	Sensor laser de balizas (tres tipos: exacto, gaussiano y geometrico)
+	protected double[] lsb (SensorPos a1)
+	{
+		double			lsb[];
+		
+		if (map == null) 		return null;
+		
+		switch (SDESC[roboindex].MODELSB)
+		{
+			case LSB_EXACT:
+				lsb = lsb_exact (a1);
+				break;
+			case LSB_GAUSS:
+				lsb = lsb_gauss (a1);
+				break;
+			case LSB_GEOM:
+			default:
+				lsb = lsb_geom (a1);
+		}
+		
+		return lsb;
+	}
+	
+//	Sensor Laser de balizas sin errores que da el angulo de orientacion (en RAD) de la baliza detectada	
+	private double[] lsb_exact (SensorPos a1)
+	{
+		int 			i,longitud;
+		double			xx1, yy1; 						// 	Posicion inicial del barrido
+		double			xx2, yy2; 						// 	Posicion final del barrido
+		double 			distMuro, distBeac, dist, dist1;//	Distancia al muro y distancia a baliza y distancia auxiliar, y distancia de la primera baliza
+		double			a2, a, step, angle; 			//  angulo de semiapertura , angulo auxiliar, angulo entre barridos, angulo auxiliar
+		double			bearing, bearingFinal; 			// angulo medido por el sensor, y angulo final medido por el sensor
+		double			rangeFinal,range;
+		double[]		lsb_measures;					//  Medidas calculadas
+		Line2			rout, wall;						//	Linea del barrido, linea que intersecta el barrido (del muro o baliza)
+		Point2			p;								// 	Punto de interseccion entre barrido y el muro o la baliza.
+		int				 index, first_index, last_index;//	Indices de la baliza intersectada (actual, primera y la ultima baliza detectada)
+		
+		xx1		= MODEL[roboindex].real_x + a1.rho () * Math.cos (MODEL[roboindex].real_a + a1.theta ());  // Posicion absoluta del sensor laser
+		yy1		= MODEL[roboindex].real_y + a1.rho () * Math.sin (MODEL[roboindex].real_a + a1.theta ());
+		
+		if(RDESC[roboindex].RANGE == true ||RDESC[roboindex].ANGLE == true)
+			longitud = RDESC[roboindex].BEACLSB*2;						// longitud del vector de las medidas
+		else
+			longitud = RDESC[roboindex].BEACLSB;						// longitud del vector de las medidas
+		
+		lsb_measures = new double[longitud];  					// BEACLSB es el numero maximo de balizas detectables
+		
+		
+		for (i=0;i<longitud;i++) lsb_measures[i]=Double.MAX_VALUE;		// Inicia el array de medida con el maximo valor (no hay medida)
+		a2		= (RDESC[roboindex].CONELSB / 2.0);								// CONELSB es el angulo de barrido (seguramente 360°)
+		step	= (a2 * 2.0) / (double) (RDESC[roboindex].RAYLSB-1);  					// angulo entre barridos 
+		rout	= new Line2 ();
+		
+		bearingFinal=Double.MAX_VALUE;
+		rangeFinal=Double.MAX_VALUE;
+		i		= 0;						//	numero de medidas
+		
+		
+		dist		= Double.MAX_VALUE;									// Minima distancia entre sensor y el baliza 	
+		dist1		= Double.MAX_VALUE;									// Primera distancia entre sensor y la baliza 	
+		index=-1;
+		last_index=-1;
+		first_index=-1;
+		
+		for (a = -a2; a < a2; a += step)	// barrido entre -a2 y a2                 
+		{
+			
+			xx2		= xx1 + RDESC[roboindex].RANGELSB * Math.cos (MODEL[roboindex].real_a + a1.orientation () + a);	// punto final del barrido
+			yy2		= yy1 + RDESC[roboindex].RANGELSB * Math.sin (MODEL[roboindex].real_a + a1.orientation () + a);
+			
+			distMuro	= Double.MAX_VALUE;									
+			distBeac	= Double.MAX_VALUE;										
+			rout.set (xx1, yy1, xx2, yy2);					
+			wall 	= map.crossline (rout, icons, iconcount, ROBOINDEX[roboindex]);									
+			if(wall != null){													
+				p			= rout.intersection (wall);	
+				if (p != null)	distMuro	= p.distance (xx1, yy1);						// Calculo de la distancia entre sensor y el muro
+			}
+			
+			index = map.crossBeacon (rout);														
+			wall = (index >= 0) ? map.beacons().get(index).getLine() : null;
+			if(wall != null){
+				p			= rout.intersection (wall);
+				if (p != null)	distBeac	= p.distance (xx1, yy1);						// Calcula la interseccion entre el sensor y baliza			
+				
+				if((distBeac<distMuro)&&(distBeac>RDESC[roboindex].MINIMLSB)){			// Si la distancia a la baliza es menor o que la del Muro, y la distancia entre la baliza es mayor a la minima
+					
+					if(index!=last_index)	dist=Double.MAX_VALUE;			
+					
+					if (distBeac<dist){										// dist = distancia minima entre entre sensor y baliza para distintos rayos (la mas perpendicular)
+						
+						range=distBeac; // Para el rango
+						bearing=Math.atan2(yy2-yy1,xx2-xx1);				// Calcula el angulo absoluto entre la baliza y sensor(PI a -PI)
+						angle=Angles.radnorm_180(map.beacons().get(index).getAng()-bearing);		// Calcula el angulo entre balizas y barrido
+						
+						//System.out.println(" range ="+ range);
+						
+						// || (angle>(rdesc.REFLSB)) && (angle<(Math.PI-rdesc.REFLSB))	// añadir al if para detectar en las dos caras
+						if ((angle>RDESC[roboindex].REFLSB) && (angle<(Math.PI-RDESC[roboindex].REFLSB)) )		// Verifica si el rayo reflecta en la baliza
+						{	
+							if ((last_index>=0) && (last_index!=index))	{
+								
+								if(RDESC[roboindex].ANGLE == true) lsb_measures[i++]=bearingFinal;	// Guarda la medida (la mas perpendicular) cuando cambia de baliza					
+								if(RDESC[roboindex].RANGE == true) lsb_measures[i++]=rangeFinal;	// Guarda la medida (la mas perpendicular) cuando cambia de baliza					
+							}
+							bearingFinal=Angles.radnorm_180(bearing-a1.orientation()-MODEL[roboindex].real_a);					// Se almacena la medida relativa que se mediría con el sensor
+							rangeFinal = range;
+							if (last_index<0)	{dist1=distBeac; first_index=index;}				// Guarda la primera distancia (para el caso especial de que el primer rayo y el ultimo del barrido correspondan a la misma baliza)
+							last_index=index;			// Se almacena el indice de la ultima baliza
+							dist=distBeac;				// Se guarda la distancia mas perpendicular a la baliza
+						}
+						
+					}
+					
+					
+				} 
+			}
+		}
+		
+		// Guarda la medida de la ultima baliza (y en el caso de que sea la misma baliza que la primera, guarda la del rayo mas perpendicular
+		if (last_index>=0){				
+			if(last_index!=first_index){								// Si la primera baliza no corresponde con la ultima guarda la medida
+				if(RDESC[roboindex].ANGLE == true) lsb_measures[i++]=bearingFinal;	// Guarda la medida (la mas perpendicular) cuando cambia de baliza					
+				if(RDESC[roboindex].RANGE == true) lsb_measures[i++]=rangeFinal;	// Guarda la medida (la mas perpendicular) cuando cambia de baliza					
+			}
+			else
+				if (dist1>dist){
+					i=0;	
+					if(RDESC[roboindex].ANGLE == true) lsb_measures[i++]=bearingFinal;	// Guarda la medida (la mas perpendicular) cuando cambia de baliza					
+					if(RDESC[roboindex].RANGE == true) lsb_measures[i++]=rangeFinal;	// Guarda la medida (la mas perpendicular) cuando cambia de baliza					
+				}
+		}
+		
+//		for(i=0;i<3;i++)
+//		System.out.println("MEDIDA0="+lsb_measures[2*i]*Angles.+"MEDIDA1="+lsb_measures[2*i+1]);
+		
+		
+//		System.out.println("**POSICION REAL ["+model.real_x+" , "+model.real_y+"]  angulo = "+model.real_a*Angles.);
+		
+		return lsb_measures;
+	}
+	
+	
+//	Sensor Laser de balizas sin errores que da el angulo de orientacion (en RAD) de la baliza detectada	(modo continuo)
+	private double[] lsb_exact_CONT (SensorPos a1)
+	{
+		int 			i,a;
+		double			xx1, yy1; 		// Posicion sensor (absolutas)
+		double			xx2, yy2; 		// Posiciones del barrido (absolutas)
+		double			a2, angle, dist; 	
+		double			range, bearing; // rango y angulo medido por el sensor
+		double[]		lsb_measures;
+		Line2			rout, wall;
+		Point2			p;
+		
+		xx1		= MODEL[roboindex].real_x + a1.rho () * Math.cos (MODEL[roboindex].real_a + a1.theta ());  // Posicion absoluta del sensor laser
+		yy1		= MODEL[roboindex].real_y + a1.rho () * Math.sin (MODEL[roboindex].real_a + a1.theta ());
+		
+		lsb_measures = new double[RDESC[roboindex].BEACLSB];  			// BEACLSB es el numero maximo de balizas
+		a2		= (RDESC[roboindex].CONELSB / 2.0);				// CONELSB es el angulo de barrido (seguramente 360°)
+		
+		rout	= new Line2 ();
+		i		= 0;
+		
+		for (a = 0; a < map.beacons().size(); a++)			// map.bn() es el numero de balizas                  
+		{	
+			rout.set(map.beacons().get(a).getLine());
+			xx2		=(rout.orig().x()+rout.dest().x())/2;		// Posicion X de la baliza
+			yy2		=(rout.orig().y()+rout.dest().y())/2;		// Posicion Y de la baliza
+			range =Math.sqrt((xx2-xx1)*(xx2-xx1)+(yy2-yy1)*(yy2-yy1));	// rango entre sensor y balizas
+			
+			dist	= Double.MAX_VALUE;									// Calculo de la distancia entre sensor y el muro	
+			rout.set (xx1, yy1, xx2, yy2);					
+			wall 	= map.crossline (rout, icons, iconcount, ROBOINDEX[roboindex]);									
+			if(wall != null){
+				p		= rout.intersection (wall);
+				if (p != null)	dist 	= p.distance (xx1, yy1);
+			}
+			
+			
+			if (range<=RDESC[roboindex].RANGELSB && range>=RDESC[roboindex].MINIMLSB && range<=dist ){				// Si el barrido alcanza la baliza y no se excede el rango maximo ...
+				bearing=Math.atan2(yy2-yy1,xx2-xx1);											// Calcula el angulo absoluto entre la baliza y sensor(PI a -PI)
+				
+				if(bearing<=a2 & bearing>=(-a2)){												// Si no se supera el angulo de barrido del laser ...
+					angle=Angles.radnorm_180(map.beacons().get(a).getAng()-bearing);									// Calcula el angulo entre balizas y barrido
+					
+					if ((angle>RDESC[roboindex].REFLSB) && (angle<(Math.PI-RDESC[roboindex].REFLSB)))
+					{lsb_measures[i++] = Angles.radnorm_180(bearing-a1.orientation()-MODEL[roboindex].real_a);		// Calculo del angulo relativo de la baliza (radianes)
+					System.out.println("Medidas beacons = "+lsb_measures[i-1]);
+					}
+				}
+			}
+		}
+		
+		while(i<RDESC[roboindex].BEACLSB)			lsb_measures[i++]=Double.MAX_VALUE;
+		
+		return lsb_measures;
+	}
+	
+	private double[] lsb_geom (SensorPos a1)	
+	{
+		int 				a=0;
+		int					i=0;
+		double[]			measures;
+		
+		measures = lsb_exact (a1);
+		
+		for (a = 0; a < RDESC[roboindex].BEACLSB; a++) {
+			if(Math.abs(measures[a])<1000){
+				if(RDESC[roboindex].ANGLE == true) 
+					measures[i]	= (1.0 - SDESC[roboindex].ERRORANGLELSB) * measures[i] + (2.0 * SDESC[roboindex].ERRORANGLELSB * Math.random () - SDESC[roboindex].ERRORANGLELSB) * measures[i++];
+				if(RDESC[roboindex].RANGE == true) 		
+					measures[i]	= (1.0 - SDESC[roboindex].ERRORRANGELSB) * measures[i] + (2.0 * SDESC[roboindex].ERRORRANGELSB * Math.random () - SDESC[roboindex].ERRORRANGELSB) * measures[i++];
+			}
+		}
+		
+		return measures;
+	}		
+	
+	private double[] lsb_gauss (SensorPos a1) // añade ruido gausiano de desviacion tipica ERRORGAUSS
+	{
+		int 				a=0;
+		int					i=0;
+		double[]			measures;		
+		measures = lsb_exact (a1);
+		for (a = 0; a < RDESC[roboindex].BEACLSB; a++) {
+			if(Math.abs(measures[a])<1000){
+				if(RDESC[roboindex].ANGLE == true) 
+					measures[i]	= measures[i++] + rnd.nextGaussian()*SDESC[roboindex].ERRORANGLELSBGAUSS; // Añade ruido gaussiano			
+				if(RDESC[roboindex].RANGE == true) 		
+					measures[i]	= measures[i++] + rnd.nextGaussian()*SDESC[roboindex].ERRORRANGELSBGAUSS; // Añade ruido gaussiano
+			}
+		}
+		return measures;
+	}
+	
+	protected double[] radar (SensorPos a1)
+	{
+		int 			i;
+		double			xx1, yy1;
+		double			xx2, yy2;
+		double			a, a2, step;
+		double			tdist;
+		double[]		rdr_measures;
+		Line2			rout, wall;
+		Point2			p;
+		
+		if (map == null) 		return null;
+
+		xx1		= MODEL[roboindex].real_x + a1.rho () * Math.cos (MODEL[roboindex].real_a + a1.theta ());
+		yy1		= MODEL[roboindex].real_y + a1.rho () * Math.sin (MODEL[roboindex].real_a + a1.theta ());
+		
+		rdr_measures = new double[SDESC[roboindex].RAYRAD];
+		a2		= RDESC[roboindex].CONETRK * 0.5;
+		step	= RDESC[roboindex].CONETRK / (double) (SDESC[roboindex].RAYRAD - 1);
+		rout	= new Line2 ();
+		
+		for (i = 0, a = -a2; i < SDESC[roboindex].RAYRAD; i++, a += step)
+		{
+			xx2		= xx1 + RDESC[roboindex].RANGETRK * Math.cos (MODEL[roboindex].real_a + a1.orientation () + a);
+			yy2		= yy1 + RDESC[roboindex].RANGETRK * Math.sin (MODEL[roboindex].real_a + a1.orientation () + a);	
+			tdist	= RDESC[roboindex].RANGETRK;
+			
+			rout.set (xx1, yy1, xx2, yy2);
+			wall 	= map.crossline (rout, icons, iconcount, ROBOINDEX[roboindex]);						
+			if (wall != null)									
+			{				
+				p		= rout.intersection (wall);
+				if (p != null)	tdist 	= p.distance (xx1, yy1);
+			}
+			rdr_measures[i] = tdist;					
+		}
+		
+		return rdr_measures;
+	}
+	
+	/**
+	 * What the robots collide with: the walls, the icons of the visible static
+	 * objects of the world (open ones, like a net, which a robot can get into
+	 * through their mouth) and the icons of the other robots.
+	 */
+	protected java.util.List<Line2> obstacles (int robotind)
+	{
+		java.util.List<Line2>	edges = new java.util.ArrayList<Line2> ();
+
+		if (map == null)		return edges;
+		if (map.walls () != null)
+			for (Line2 l : map.walls ().getLines ())		edges.add (l);
+		for (tc.shared.world.WMObject ob : map.objects ())
+			if (ob.visible)
+				for (Line2 l : ob.absIcon ())				edges.add (l);
+		for (int i = 0; i < numrobots; i++)
+			if ((i != robotind) && (icons[ROBOINDEX[i]] != null))
+				for (Line2 l : icons[ROBOINDEX[i]])			edges.add (l);
+		return edges;
+	}
+
+	/** The point of an edge closest to (x, y): {x, y, distance}. */
+	static protected double[] closestOn (Line2 e, double x, double y)
+	{
+		double		ex = e.dest ().x () - e.orig ().x (), ey = e.dest ().y () - e.orig ().y ();
+		double		len2 = ex * ex + ey * ey;
+		double		t = (len2 > 0.0) ? ((x - e.orig ().x ()) * ex + (y - e.orig ().y ()) * ey) / len2 : 0.0;
+		double		px, py;
+
+		t	= Math.max (0.0, Math.min (1.0, t));
+		px	= e.orig ().x () + t * ex;
+		py	= e.orig ().y () + t * ey;
+		return new double[] { px, py, Math.sqrt ((x - px) * (x - px) + (y - py) * (y - py)) };
+	}
+
+	/**
+	 * What a robot collides as, in its own frame: discs {dx, dy, r}. The one disc
+	 * of its radius at its origin, as a rule. When its actuator is not to collide
+	 * ({@link #COLLIDE_ACTUATORS}) and the robot has one (a 3D model of it) and
+	 * its bumpers outline its body, it is that body instead: discs of half the
+	 * width of the outline, side by side along its length, which leave the fork
+	 * out of the collision and let it go under a pallet.
+	 */
+	protected double[][] body (int robotind)
+	{
+		if (BODY[robotind] != null)			return BODY[robotind];
+
+		RobotDesc		rd = RDESC[robotind];
+		double[][]		discs = { { 0.0, 0.0, rd.RADIUS } };
+		boolean			actuator = (SDESC[robotind] != null) && (SDESC[robotind].V3DLIFT != null);
+
+		if (!COLLIDE_ACTUATORS && actuator && (rd.MAXBUMPER > 0) && (rd.bumfeat != null))
+		{
+			double		x0 = Double.MAX_VALUE, y0 = Double.MAX_VALUE, x1 = -Double.MAX_VALUE, y1 = -Double.MAX_VALUE;
+
+			for (int i = 0; i < rd.MAXBUMPER; i++)
+			{
+				Line2	b = rd.bumfeat[i];
+
+				if (b == null)		continue;
+				x0 = Math.min (x0, Math.min (b.orig ().x (), b.dest ().x ()));	x1 = Math.max (x1, Math.max (b.orig ().x (), b.dest ().x ()));
+				y0 = Math.min (y0, Math.min (b.orig ().y (), b.dest ().y ()));	y1 = Math.max (y1, Math.max (b.orig ().y (), b.dest ().y ()));
+			}
+			if ((x1 > x0) && (y1 > y0))
+			{
+				// the shorter side gives the discs, laid along the longer one from end to end
+				boolean		alongX = (x1 - x0) >= (y1 - y0);
+				double		r = (alongX ? (y1 - y0) : (x1 - x0)) / 2.0;
+				double		from = (alongX ? x0 : y0) + r, to = (alongX ? x1 : y1) - r;
+				double		mid = alongX ? (y0 + y1) / 2.0 : (x0 + x1) / 2.0;
+				int			n = Math.max (1, (int) Math.ceil ((to - from) / r)) + 1;		// no gap wider than the radius between centres
+
+				discs	= new double[n][];
+				for (int i = 0; i < n; i++)
+				{
+					double	c = (n > 1) ? from + (to - from) * i / (n - 1) : (from + to) / 2.0;
+
+					discs[i]	= alongX ? new double[] { c, mid, r } : new double[] { mid, c, r };
+				}
+			}
+		}
+		BODY[robotind]	= discs;
+		return discs;
+	}
+
+	/**
+	 * The robot against what it can hit: it is the disc of its radius (or the
+	 * discs of its body, see {@link #body}), and an edge it overlaps puts it out
+	 * of the way (the deepest one first, a few times, so that it comes out of a
+	 * corner too), which is what lets it slide along a wall instead of stopping
+	 * dead against it. Its bumpers are set from where it was touched. Returns
+	 * whether it touched anything.
+	 */
+	protected boolean collide (int robotind, RobotData data)
+	{
+		double[][]	discs = body (robotind);
+		boolean		hit = false;
+
+		if (map == null)		return false;
+		for (int pass = 0; pass < 6; pass++)
+		{
+			Line2		deepest = null;
+			double[]	where = null;
+			double		into = 0.0;
+			double		cx = 0.0, cy = 0.0;										// the centre of the disc that went deepest
+			double		ca = Math.cos (MODEL[robotind].real_a), sa = Math.sin (MODEL[robotind].real_a);
+			java.util.List<Line2>	edges = obstacles (robotind);
+
+			for (double[] d : discs)
+			{
+				double	dx = MODEL[robotind].real_x + d[0] * ca - d[1] * sa;
+				double	dy = MODEL[robotind].real_y + d[0] * sa + d[1] * ca;
+
+				for (Line2 e : edges)
+				{
+					double[]	c = closestOn (e, dx, dy);
+					if ((d[2] - c[2] > into) && (d[2] - c[2] > 1e-6))		{ into = d[2] - c[2]; deepest = e; where = c; cx = dx; cy = dy; }
+				}
+			}
+			if (deepest == null)		break;
+
+			double		nx = cx - where[0], ny = cy - where[1];
+			double		n = Math.sqrt (nx * nx + ny * ny);
+
+			if (n < 1e-9)											// dead on the edge: out the way it came from
+			{
+				nx	= -Math.cos (MODEL[robotind].real_a);
+				ny	= -Math.sin (MODEL[robotind].real_a);
+				n	= 1.0;
+			}
+			nx	/= n;		ny /= n;
+			MODEL[robotind].real_x	+= nx * (into + 0.001);
+			MODEL[robotind].real_y	+= ny * (into + 0.001);
+			MODEL[robotind].odom_x	+= nx * (into + 0.001);
+			MODEL[robotind].odom_y	+= ny * (into + 0.001);
+			bumped (robotind, data, -nx, -ny);
+			hit	= true;
+		}
+		if (hit)
+		{
+			data.location (MODEL[robotind].odom_x, MODEL[robotind].odom_y, MODEL[robotind].odom_a);
+			MODEL[robotind].backup (data);
+		}
+		return hit;
+	}
+
+	/** The bumpers the robot was touched on, from the way the touch came (dx, dy in the world). */
+	protected void bumped (int robotind, RobotData data, double dx, double dy)
+	{
+		double		phi = Angles.radnorm_180 (Math.atan2 (dy, dx) - MODEL[robotind].real_a);
+
+		for (int i = 0; i < RDESC[robotind].MAXBUMPER; i++)
+		{
+			Line2		b = RDESC[robotind].bumfeat[i];
+			double		a1, a2;
+
+			if (b == null)		continue;
+			a1	= Math.atan2 (b.orig ().y (), b.orig ().x ());
+			a2	= Math.atan2 (b.dest ().y (), b.dest ().x ());
+			if (Math.abs (Angles.radnorm_180 (phi - a1)) + Math.abs (Angles.radnorm_180 (phi - a2))
+					<= Math.abs (Angles.radnorm_180 (a2 - a1)) + 1e-6)
+				data.bumpers[i]	= true;
+		}
+	}
+
+	public void reset (int robotind, RobotData data, World map)
+	{
+		if (MODEL[robotind] != null) 
+		{
+			if (map != null)
+			{
+				tc.shared.world.WMStart	st = map.start (robotind);			// START_i for the i-th robot (the first one when there are fewer)
+				MODEL[robotind].position (data, st.x (), st.y (), st.orientation);
+				START[robotind]	= new double[] { st.x (), st.y (), st.orientation };
+			}
+			else
+				MODEL[robotind].position (data, 0.0, 0.0, 0.0);		
+		}
+	}
+	
+	/** Places a robot at an explicit pose. */
+	public void reset (int robotind, RobotData data, double x, double y, double a)
+	{
+		if (MODEL[robotind] != null)		MODEL[robotind].position (data, x, y, a);
+		START[robotind]	= new double[] { x, y, a };
+	}
+
+	/** Change the START position for the next added robot */
+	public void changeStart (double x, double y)
+	{
+		if (map != null) map.setStart (x, y, map.start_a());
+	}
+	
+	public void changeStart (double x, double y, double a)
+	{
+		if (map != null) map.setStart (x, y, a);
+	}
+	
+	
+	synchronized public void simulate (int robotind, RobotData data, double vlin, double vlat, double vrot, 
+			int cycson, int cycir, int cyclrf, int cyclsb, int cycvis, double dt)
+	{
+		int			i;
+//		boolean		collision;
+		
+		roboindex = robotind;        
+		CMD[robotind][0] = vlin;	CMD[robotind][1] = vlat;	CMD[robotind][2] = vrot;
+		
+		// Compute model based displacement        
+		MODEL[robotind].backup (data);
+		MODEL[robotind].simulation (data, vlin, vlat, vrot, dt);		
+		
+		// Send internal data up to LPS
+		if (MODEL[robotind] instanceof TricycleDrive)
+		{
+			data.vm		= ((TricycleDrive) MODEL[robotind]).vm;
+			data.del		= ((TricycleDrive) MODEL[robotind]).del;
+		}
+		
+		// Check for collisions: what it overlaps puts it out of the way
+		for (i = 0; i < RDESC[robotind].MAXBUMPER; i++)
+			data.bumpers[i] = false;
+//		collision = collide (robotind, data);
+		collide (robotind, data);
+		
+		// Update real coordinates
+		MODEL[robotind].update (data);
+		
+		// Simulate sensors
+		simulate (robotind, data, cycson, cycir, cyclrf, cyclsb, cycvis);
+		
+		// Stores robot data
+		lastRobotData[robotind] = data;
+		
+		// Simulates picked objects by the robot
+		if ((objectPicked[robotind] != -1) && (objects != null))
+			((SimCargo) objects.OBJS[objectPicked[robotind]]).move (data.real_x,data.real_y, data.fork, data.real_a);
+	
+	}
+	
+	synchronized public void simulate (int robotind, RobotData data, double x, double y, double a, 
+			int cycson, int cycir, int cyclrf, int cyclsb, int cycvis)
+	{
+		int			i;
+		
+		roboindex = robotind;        
+		
+		// Set log based displacement        
+		MODEL[robotind].backup (data);
+		MODEL[robotind].position (data, x, y, a);
+		
+		// Send internal data up to LPS
+		if (MODEL[robotind] instanceof TricycleDrive)
+		{
+			data.vm		= ((TricycleDrive) MODEL[robotind]).vm;
+			data.del		= ((TricycleDrive) MODEL[robotind]).del;
+		}
+		
+		// Check for collisions
+		for (i = 0; i < RDESC[robotind].MAXBUMPER; i++)
+			data.bumpers[i] = false;
+		collide (robotind, data);
+		
+		// Update real coordinates
+		MODEL[robotind].update (data);
+		
+		// Simulate sensors
+		simulate (robotind, data, cycson, cycir, cyclrf, cyclsb, cycvis);
+		
+		// Stores robot data
+		lastRobotData[robotind] = data;		
+		
+		// Simulates picked objects by the robot
+		if ((objectPicked[robotind] != -1) && (objects != null))
+			((SimCargo) objects.OBJS[objectPicked[robotind]]).move (data.real_x, data.real_y, data.fork, data.real_a);
+	}
+	
+	/**
+	 * Whether a sensor reads on this step of the firing cycle of its family: on the
+	 * step it says it reads on, or on every one when it says none (0, as a
+	 * description that does not care about the firing order leaves it).
+	 */
+	static protected boolean fires (int step, int cycle)
+	{
+		return (step <= 0) || (step == cycle);
+	}
+
+	synchronized public void simulate (int robotind, RobotData data, int cycson, int cycir, int cyclrf, int cyclsb, int cycvis)
+	{
+		int			i,j;
+		
+		roboindex = robotind;        
+		
+		// Compute simulated SONAR data
+		for (i = 0; i < RDESC[robotind].MAXSONAR; i++)
+			if (fires (RDESC[robotind].sonfeat[i].step (), cycson) && (DATA_CTRL[robotind].sonar))
+			{
+				data.sonars[i]		= sonar (RDESC[robotind].sonfeat[i]);  
+				data.sonars_flg[i]	= true;
+			}  
+			else   
+				data.sonars_flg[i]	= false;
+		
+		// Compute simulated INFRARED data
+		for (i = 0; i < RDESC[robotind].MAXIR; i++)
+			if (fires (RDESC[robotind].irfeat[i].step (), cycir) && (DATA_CTRL[robotind].ir))
+			{
+				data.irs[i]			= ir (RDESC[robotind].irfeat[i]);
+				data.irs_flg[i]		= true;
+			}     
+			else   
+				data.irs_flg[i]	= false;
+		
+		// Compute simulated LASER RANGE data
+		for (i = 0; i < RDESC[robotind].MAXLRF; i++)
+			if (fires (RDESC[robotind].lrffeat[i].step (), cyclrf) && (DATA_CTRL[robotind].lrf))
+			{
+				data.lrfs[i]		= lrf (RDESC[robotind].lrffeat[i]);       
+				data.lrfs_flg[i]	= true;
+			}     
+			else   
+				data.lrfs_flg[i]	= false;
+		
+		// Compute simulated LASER BEACON data
+		for (i = 0; i < RDESC[robotind].MAXLSB; i++)
+			if (fires (RDESC[robotind].lsbfeat[i].step (), cyclsb) && (DATA_CTRL[robotind].lsb))
+			{
+//				data.beacon[i]		= lsb (RDESC[robotind].lsbfeat[i]);  
+				
+				bpos.set (data.real_x, data.real_y, data.real_a);
+				
+				data.beacon[i].setPosition (bpos);  
+				data.beacon[i].setNumber (5);
+				data.beacon[i].setQuality(90);
+				data.beacon[i].setValid (true);
+			}     
+			else   
+				data.beacon[i].setValid (false);
+		
+		// Compute simulated GPS data
+		for (i = 0; i < RDESC[robotind].MAXGPS; i++)
+		{
+			data.gps[i]		= new GPSData ();  
+			data.gps[i].setPos (new UTMPos (data.real_x, data.real_y, "30-S"));  
+			data.gps[i].setFix (GPSData.FIX_WAAS_3D);
+			data.gps[i].setNumSat (5);
+		}     
+		
+		// Compute simulated COMPASS data
+		for (i = 0; i < RDESC[robotind].MAXCOMPASS; i++)
+		{
+			data.compass[i]		= new CompassData ();  
+			data.compass[i].setHeading (data.real_a);  
+			data.compass[i].setPitch (0.0);  
+			data.compass[i].setRoll (0.0);  
+		}     
+		
+		// Compute simulated INS data
+		for (i = 0; i < RDESC[robotind].MAXINS; i++)
+		{
+			data.ins[i]		= new InsData ();  
+			data.ins[i].setPitch (0.0);  
+			data.ins[i].setRoll (0.0);  
+			data.ins[i].setRollRate (0.0);
+			data.ins[i].setPitchRate (0.0);
+			data.ins[i].setYawRate (0.0);
+			data.ins[i].setAccX (0.0);
+			data.ins[i].setAccY (0.0);
+			data.ins[i].setAccZ (0.0);
+		}     
+		
+		// Compute simulated RADAR data
+		double[]		rds;
+		int			k;
+		
+		for (i = 0; i < RDESC[robotind].MAXTRACKER; i++)
+		{
+			rds		= radar (RDESC[robotind].trkfeat[i]);
+			
+			for (k = 0; k < RDESC[robotind].OBJTRK; k++)
+				data.trackers[i].valid[k] = false;
+			
+			for (j = 0, k = 0; j < SDESC[robotind].RAYRAD; j++)
+				if ((rds[j] < RDESC[robotind].RANGETRK) && (k < RDESC[robotind].OBJTRK - 1))
+				{
+					data.trackers[i].trks[k][TrackerData.RANGE] = rds[j];
+					data.trackers[i].trks[k][TrackerData.ALPHA] = (double) j * RDESC[robotind].CONETRK / (double) SDESC[robotind].RAYRAD;
+					data.trackers[i].trks[k][TrackerData.SPEED] = 0.0;
+					data.trackers[i].valid[k] = true;
+					k ++;
+				}
+		}     
+		
+		moveIcon (ROBOINDEX[robotind], OUTLINE[robotind], MODEL[robotind].real_x, MODEL[robotind].real_y, MODEL[robotind].real_a);	
+	}
+}

@@ -1,0 +1,597 @@
+/*
+ * (c) 1997-2001 Humberto Martinez
+ * (c) 2004 Humberto Martinez
+ */
+ 
+package tcapps.tceditor.visualization;
+
+import java.util.*;
+import java.awt.*;
+import javax.media.j3d.*;
+import javax.vecmath.*;
+
+import com.mnstarfire.loaders3d.*;
+import com.sun.j3d.loaders.*;
+import com.sun.j3d.utils.image.*;
+import com.sun.j3d.utils.universe.*;
+
+import tclib.utils.pos.*;
+
+public class Scene3D extends Object
+{
+	// View modification modes
+	static public final int			M_MOVE		= 0;
+	static public final int			M_ROTATE		= 1;
+	static public final int			M_ZOOM		= 2;
+	
+	static public final int			KEYMOVE		= 10;
+	static public final int			KEYZOOM		= 10;
+	static public final int			KEYROTATE	= 10;
+
+	// Dafult lighting values
+	static public final float			FRONT_INT	= 1.0f;
+	static public final float			BACK_INT		= 0.8f; 
+	static public final float			TOP_INT		= 0.65f; 
+	static public final float			AMBIENT_INT	= 1.0f; 
+	
+	protected Canvas3D				canvas;
+	protected SimpleUniverse			universe		= null;
+	protected BranchGroup				root;
+	protected TransformGroup			scene;
+	
+	// Viewpoint related stuff
+	protected Transform3D				view;
+	protected Point3d				eye;
+	protected Point3d				focus;
+	protected int					prevx;
+	protected int					prevy;
+	
+	// Current point of view parameters
+	protected double					len			= 20.0;
+	protected double					rho			= 0.0;
+	protected double					theta		= 0.0;
+
+	// Lighting stuff
+	protected DirectionalLight		lightFront;
+	protected DirectionalLight		lightBack;
+	protected DirectionalLight		lightTop;
+	protected AmbientLight			lightAmbient;
+	
+	// Textures and coloring
+	private Hashtable<String, Appearance>	texCache;		// Textures cache
+	private Hashtable<String, BranchGroup>	objCache;		// 3D objects cache
+	private Hashtable<String, Appearance>	picCache;		// Pictures cache: one picture over one plate, not repeated
+
+	/* Constructors */
+	public Scene3D (Canvas3D canvas) 
+	{
+		Background			bkg;
+		BoundingSphere 		bounds;
+		
+		// Initialise some variables
+		this.canvas	= canvas;
+		
+		// Caches
+		texCache	= new Hashtable<String, Appearance> ();	
+		objCache	= new Hashtable<String, BranchGroup> ();	
+		picCache	= new Hashtable<String, Appearance> ();	
+		
+		view		= new Transform3D ();
+		focus	= new Point3d (0.0, 0.0, 0.0);
+		eye		= new Point3d (0.0, 0.0, 0.0);
+		
+		// Create a simple scene.
+		root		= new BranchGroup ();
+		scene	= new TransformGroup ();
+		scene.setCapability (TransformGroup.ALLOW_TRANSFORM_WRITE);
+		scene.setCapability (BranchGroup.ALLOW_CHILDREN_WRITE);
+		scene.setCapability (BranchGroup.ALLOW_CHILDREN_EXTEND);
+		root.addChild (scene);
+		
+		// Set up the background color
+		bounds	= new BoundingSphere (new Point3d (0.0,0.0,0.0), 100.0);
+		bkg		= new Background (Color3D.ambientblue);
+		bkg.setApplicationBounds (bounds);
+		scene.addChild (bkg);
+
+		// Create and setup lighting system
+		lightFront	= new DirectionalLight(true, new Color3f(FRONT_INT,FRONT_INT,FRONT_INT), new Vector3f (100.0f, 100.0f, 20.0f));
+		lightFront.setInfluencingBounds(new BoundingSphere(new Point3d(0.0f,0.0f,0.0f),300.0f));
+		lightFront.setCapability(Light.ALLOW_STATE_WRITE);
+		lightFront.setCapability(Light.ALLOW_COLOR_WRITE);
+		lightFront.setCapability(Light.ALLOW_COLOR_READ);
+
+		lightBack	= new DirectionalLight(true, new Color3f(BACK_INT,BACK_INT,BACK_INT), new Vector3f (-100.0f, -100.0f, 20.0f));
+		lightBack.setInfluencingBounds(new BoundingSphere(new Point3d(0.0f,0.0f,0.0f),300.0f));
+		lightBack.setCapability(Light.ALLOW_STATE_WRITE);
+		lightBack.setCapability(Light.ALLOW_COLOR_WRITE);
+		lightBack.setCapability(Light.ALLOW_COLOR_READ);
+
+		lightTop		= new DirectionalLight(true, new Color3f(TOP_INT,TOP_INT,TOP_INT), new Vector3f (0.0f, 0.0f, -100.0f));
+		lightTop.setInfluencingBounds(new BoundingSphere(new Point3d(0.0f,0.0f,0.0f),300.0f));
+		lightTop.setCapability(Light.ALLOW_STATE_WRITE);
+		lightTop.setCapability(Light.ALLOW_COLOR_WRITE);
+		lightTop.setCapability(Light.ALLOW_COLOR_READ);
+
+		lightAmbient = new AmbientLight(true,new Color3f(AMBIENT_INT,AMBIENT_INT,AMBIENT_INT));
+		lightAmbient.setInfluencingBounds(new BoundingSphere(new Point3d(0.0f,0.0f,0.0f),300.0f));
+		lightAmbient.setCapability(Light.ALLOW_STATE_WRITE);
+		lightAmbient.setCapability(Light.ALLOW_COLOR_WRITE);
+		lightAmbient.setCapability(Light.ALLOW_COLOR_READ);
+
+		scene.addChild (lightFront);
+		scene.addChild (lightBack);
+		scene.addChild (lightTop);
+		scene.addChild (lightAmbient);
+		
+		// Attach the scene to the virtual universe
+		universe = new SimpleUniverse (canvas);
+		universe.getViewingPlatform ().setNominalViewingTransform ();
+		universe.addBranchGraph (root);
+	}
+  
+	// Instance methods
+	public Appearance getCachedTexture (String name, boolean horiz)
+	{
+		Appearance			app;
+		ColoringAttributes	col;
+		TextureLoader		texl;
+		Texture 				tex;
+		TexCoordGeneration	txtc;		// Attributes to allow texture scale and repetition
+		TextureAttributes	txta;		// Attribute to allow lightning textures
+		Material				mat;
+		
+		if (texCache.containsKey(name))
+			app = texCache.get(name);
+		else
+		{
+			System.out.println ("  [Scene3D] Loading texture <"+name+">");
+			
+			app 		= new Appearance();
+			texl		= new TextureLoader (name, canvas);
+			txta		= new TextureAttributes();
+			txta.setTextureMode(TextureAttributes.MODULATE);
+			if (horiz)
+				txtc 	= new TexCoordGeneration(TexCoordGeneration.TEXTURE_COORDINATE_2,TexCoordGeneration.OBJECT_LINEAR,new Vector4f(1.0f,0.0f,0.0f,0.0f),new Vector4f(0.0f,1.0f,0.0f,0.0f));
+			else
+				txtc 	= new TexCoordGeneration(TexCoordGeneration.TEXTURE_COORDINATE_2,TexCoordGeneration.OBJECT_LINEAR,new Vector4f(1.0f,0.0f,0.0f,0.0f),new Vector4f(0.0f,0.0f,1.0f,0.0f));
+			col		= new ColoringAttributes (Color3D.gray, ColoringAttributes.SHADE_GOURAUD);
+			mat		= new Material (Color3D.gray, Color3D.gray, Color3D.gray, Color3D.white, 100.0f);
+			app.setColoringAttributes (col);
+			tex = texl.getTexture();
+			tex.setBoundaryModeS(Texture.WRAP);
+			tex.setBoundaryModeT(Texture.WRAP);
+			app.setTexture (tex);
+			app.setMaterial (mat);
+			app.setTexCoordGeneration(txtc);
+			app.setTextureAttributes(txta);
+			
+			texCache.put(name, app);
+		}
+		
+		return app;
+	}
+
+	/**
+	 * What an object of the world is drawn as when it carries a picture and no 3D
+	 * model: the picture itself, lying flat over the ground its icon covers, shown
+	 * once over the whole of it and not repeated.
+	 *
+	 * The object is only a drawing on the floor -- a line of a field, the badge of a
+	 * team, a mark -- so there is nothing of it to raise: the plate lies on the
+	 * floor, a hair above it so that the two are not drawn over each other, and is
+	 * seen from either side.
+	 *
+	 * @param o		the object
+	 * @return the plate, or null when the object has a model, no picture, or no icon
+	 *         to take the ground it covers from
+	 */
+	public TransformGroup getObjectImage (tc.shared.world.WMObject o)
+	{
+		if ((o == null) || (o.shape != null) || (o.image == null))		return null;
+		return getCachedImage (o.image, wucore.utils.image.PlanImage.bounds (o.getLocalIcon ()), PLATE);
+	}
+
+	/**
+	 * How high over the floor such a plate lies (m): over the zones, which are a slab
+	 * of a centimetre about the zero, and over the markings that are lifted a little
+	 * over them, so that a picture painted on the ground is seen and does not fight
+	 * for the same pixels with what is under it.
+	 */
+	static public final double		PLATE		= 0.022;
+
+	/**
+	 * A plate lying flat with a picture on it, in the frame of whoever carries it:
+	 * the picture is shown once over the whole plate, from its lower left corner to
+	 * its upper right one, and never repeated.
+	 *
+	 * @param name	the file of the picture
+	 * @param box	the ground it covers, {minx, miny, maxx, maxy} (m)
+	 * @param z		how high over the floor it lies (m)
+	 */
+	public TransformGroup getCachedImage (String name, double[] box, double z)
+	{
+		Appearance		app;
+		QuadArray		quad;
+		TransformGroup	tgroup;
+
+		if ((name == null) || (box == null))							return null;
+		if ((box[2] <= box[0]) || (box[3] <= box[1]))					return null;
+
+		app		= getCachedPicture (name);
+		if (app == null)												return null;
+
+		// the four corners of the ground it covers, and the four of the picture: the
+		// width of the picture along x and its height along y, its first row up
+		quad	= new QuadArray (4, QuadArray.COORDINATES | QuadArray.TEXTURE_COORDINATE_2 | QuadArray.NORMALS);
+		quad.setCoordinate (0, new Point3d (box[0], box[1], z));
+		quad.setCoordinate (1, new Point3d (box[2], box[1], z));
+		quad.setCoordinate (2, new Point3d (box[2], box[3], z));
+		quad.setCoordinate (3, new Point3d (box[0], box[3], z));
+		quad.setTextureCoordinate (0, 0, new TexCoord2f (0.0f, 0.0f));
+		quad.setTextureCoordinate (0, 1, new TexCoord2f (1.0f, 0.0f));
+		quad.setTextureCoordinate (0, 2, new TexCoord2f (1.0f, 1.0f));
+		quad.setTextureCoordinate (0, 3, new TexCoord2f (0.0f, 1.0f));
+		for (int i = 0; i < 4; i++)		quad.setNormal (i, new Vector3f (0.0f, 0.0f, 1.0f));
+
+		tgroup	= new TransformGroup ();
+		tgroup.setCapability (TransformGroup.ALLOW_TRANSFORM_WRITE);
+		tgroup.addChild (new Shape3D (quad, app));
+
+		return tgroup;
+	}
+
+	/**
+	 * The picture of a plate, read once and kept: clamped, so that it is shown
+	 * once and what falls outside it is not the picture over again, and taken as it
+	 * is rather than lit, which is what a drawing on the floor looks like.
+	 */
+	protected Appearance getCachedPicture (String name)
+	{
+		Appearance			app;
+		Texture				tex;
+		TextureAttributes	txta;
+		PolygonAttributes	pola;
+
+		if (picCache.containsKey (name))				return picCache.get (name);
+
+		System.out.println ("  [Scene3D] Loading picture <" + name + ">");
+
+		app		= null;
+		try
+		{
+			// a picture is as large as it is, and not a power of two
+			tex		= new TextureLoader (name, TextureLoader.ALLOW_NON_POWER_OF_TWO, canvas).getTexture ();
+			if (tex != null)
+			{
+				tex.setBoundaryModeS (Texture.CLAMP);
+				tex.setBoundaryModeT (Texture.CLAMP);
+
+				txta	= new TextureAttributes ();
+				txta.setTextureMode (TextureAttributes.REPLACE);
+				pola	= new PolygonAttributes ();
+				pola.setCullFace (PolygonAttributes.CULL_NONE);			// seen from either side
+
+				app		= new Appearance ();
+				app.setTexture (tex);
+				app.setTextureAttributes (txta);
+				app.setPolygonAttributes (pola);
+			}
+		} catch (Exception e) { e.printStackTrace (); }
+		if (app == null)		System.out.println ("--[Scene3D] Cannot read the picture <" + name + ">");
+
+		picCache.put (name, app);
+		return app;
+	}
+
+	public TransformGroup getCachedObject (String name, Color color)
+	{
+		TransformGroup	tgroup;
+		TransformGroup	tbranch;
+		Transform3D		trans;
+		BranchGroup		branch;
+
+		if (name == null)				return null;
+		
+		if (objCache.containsKey(name))
+		{
+			branch	= objCache.get (name);
+			branch	= (BranchGroup) branch.cloneTree (true);
+		}
+		else
+		{
+			Scene 			group;
+			Loader3DS		loader;
+
+			System.out.println ("  [Scene3D] Loading 3D object <"+name+">");
+						
+			// Load 3D object
+			branch	= new BranchGroup ();
+			try 
+			{					
+				loader	= new Loader3DS ();
+				group	= loader.load (name); 
+				branch	= group.getSceneGroup ();
+				branch.setCapability(BranchGroup.ALLOW_CHILDREN_READ);					
+			} catch (Exception e) { e.printStackTrace(); }		
+
+			objCache.put (name, (BranchGroup) branch.cloneTree (true));
+		}
+		
+		// Transform object references to Java3D
+		trans 	= new Transform3D ();
+		trans.rotX (Math.PI / 2.0f);
+		tbranch 	= new TransformGroup ();
+		tbranch.setTransform (trans);
+		tbranch.addChild (branch);		
+
+		// If color has to be overriden, apply new color
+		if (color != null)
+			traverse (branch, Color3D.toColor (color));
+
+		// Create export group
+		tgroup	= new TransformGroup ();
+		tgroup.setCapability (TransformGroup.ALLOW_TRANSFORM_WRITE);
+		tgroup.addChild (tbranch);
+
+		return tgroup;
+	}
+	
+	/**
+	 * Height (m) of a 3D object as returned by {@link #getCachedObject}: the
+	 * top of its geometry over its own origin, i.e. the maximum Y of the 3DS
+	 * model (Y-up), which becomes Z once placed in the scene. 0 when unknown.
+	 */
+	static public double height (Node node)
+	{
+		double[]	top = { Double.NEGATIVE_INFINITY };
+		maxY (node, top);
+		return Double.isInfinite (top[0]) ? 0.0 : Math.max (0.0, top[0]);
+	}
+
+	static private void maxY (Node node, double[] top)
+	{
+		if (node instanceof Shape3D)
+		{
+			Shape3D		shape = (Shape3D) node;
+			for (int i = 0; i < shape.numGeometries (); i++)
+			{
+				Geometry	geo = shape.getGeometry (i);
+				if (!(geo instanceof GeometryArray))		continue;
+				try
+				{
+					GeometryArray	ga = (GeometryArray) geo;
+					Point3d			p = new Point3d ();
+					int				n = ga.getValidVertexCount ();
+					int				first = ((ga.getVertexFormat () & GeometryArray.BY_REFERENCE) != 0) ? ga.getInitialVertexIndex () : 0;
+					for (int k = first; k < first + n; k++)
+					{
+						ga.getCoordinate (k, p);
+						if (p.y > top[0])		top[0] = p.y;
+					}
+				} catch (Exception e)
+				{
+					// geometry not readable this way: use its bounds
+					Bounds	b = shape.getBounds ();
+					if (b != null)
+					{
+						BoundingBox	box = new BoundingBox (b);
+						Point3d		up = new Point3d ();
+						box.getUpper (up);
+						if (up.y > top[0])		top[0] = up.y;
+					}
+				}
+			}
+		}
+		else if (node instanceof Group)
+		{
+			Enumeration<Node>	e = ((Group) node).getAllChildren ();
+			while (e.hasMoreElements ())	maxY (e.nextElement (), top);
+		}
+	}
+
+	/** Visit all the Shape3D objects in a Group node and 
+	 *	applies them a material with the specified color
+	 */
+	/** A model given a colour of its own (usecolor): how much of it lights its shadows, and how bright its highlights are. */
+	static protected final float	AMBIENT		= 0.35f;
+	static protected final float	SPECULAR	= 0.6f;
+
+	protected void traverse (Group bg, Color3f objcolor) 
+	{
+		Enumeration<Node> e = bg.getAllChildren();		
+		
+		while (e.hasMoreElements())
+		{
+			Object o = e.nextElement();
+			
+			if (o instanceof Shape3D)
+			{
+				// the colour of the object, lit as a painted surface: darker where the light does not
+				// reach, with the highlights and the shininess of the material of the model (it was
+				// emitted, which drew the model as a flat patch of the colour)
+				Appearance	old = ((Shape3D) o).getAppearance ();
+				Material	was = (old != null) ? old.getMaterial () : null;
+				Appearance	app = new Appearance();
+				Color3f		amb = new Color3f (objcolor.x * AMBIENT, objcolor.y * AMBIENT, objcolor.z * AMBIENT);
+				Material	mat	= new Material (amb, Color3D.black, objcolor, new Color3f (SPECULAR, SPECULAR, SPECULAR),
+											(was != null) ? was.getShininess () : 48.0f);
+				mat.setLightingEnable (true);
+				app.setMaterial (mat);
+
+				((Shape3D) o).setAppearance (app);					
+			}
+			else if (o instanceof Group) 
+				traverse ((Group) o, objcolor);
+		}
+	}
+	
+	public void setViewpoint ()
+	{
+		double			x, y, z;
+		
+		x	= len * Math.cos (theta);
+		y	= len * Math.sin (theta);
+		z	= len * Math.sin (rho);
+
+		eye.set (x, y, z);
+		eye.add (focus);
+		view.lookAt (eye, focus, new Vector3d (0, 0, 1.0f));
+		scene.setTransform (view);
+	}
+	
+	public void mouseDown (int x, int y) 
+	{
+		prevx = x;
+		prevy = y;
+	}
+
+	public void keypress(int mode,int x,int y){
+		mouseDrag(mode,prevx-x,prevy+y);
+	}
+	public void mouseDrag (int mode, int newx, int newy) 
+	{
+		int			dx, dy;
+		double		angulo;
+		Point3d		myneweye;
+		Position	pos;
+		
+		dx	= newx - prevx;
+		dy	= newy - prevy;
+				
+		
+		switch (mode){
+		case M_MOVE:
+//			Angulo que forma la recta que pasa por los puntos eye y focus con respecto a la recta y=0
+			angulo=Math.atan2(focus.y-eye.y,focus.x-eye.x)-Math.PI/2;
+//			Nueva posicion de eye
+			myneweye=new Point3d((-1*dx),dy,eye.z);
+//			Coordenadas globales de la nueva posicion de eye
+			pos=Transform2.toGlobal(myneweye.x,myneweye.y,0,eye.x,eye.y,angulo);
+ 
+			focus.x	+= (pos.x()-eye.x) * 0.05;
+			focus.y	+= (pos.y()-eye.y) * 0.05;
+			
+			break;
+			
+		case M_ROTATE:
+			theta	+= dx * 0.002;
+			rho		+= dy * 0.002;
+			
+			rho		= Math.max (Math.min (rho, Math.PI), -Math.PI);
+			break;
+			
+		case M_ZOOM:
+			len		+= dy * 0.05;
+			len		= Math.max (len, 0.1);
+			break;
+			
+		default:
+		}
+		
+		setViewpoint ();
+
+		prevx = newx;
+		prevy = newy;
+	}
+	
+/*	Point3d iorig, idest; // Initial and final points of drag movement in image plate coordinates
+	Point3d vorig, vdest; // Initial and final points of drag movement in virtual universe coordinates
+	Transform3D ipToVu; // Transformation from image plate coordinates to virtual universe coordinates
+
+	iorig= new Point3d();
+	idest = new Point3d();
+	vorig = new Point3d();
+	vdest = new Point3d();
+	ipToVu = new Transform3D();
+
+	canvas.getPixelLocationInImagePlate(prevx,prevy,iorig);
+	canvas.getPixelLocationInImagePlate(newx,newy,idest);
+	canvas.getImagePlateToVworld(ipToVu);
+	ipToVu.transform(iorig,vorig);
+	ipToVu.transform(idest,vdest);
+	view.transform(vorig);
+	view.transform(vdest);
+	focus.add(new Vector3d(vdest.x-vorig.x,vdest.y-vorig.y,0.0));
+*/
+	/** Sets the front light intensity level. Must be between 0.0 and 1.0 */
+	public void setFrontLightIntensity(float intensity)
+	{
+		lightFront.setColor(new Color3f(intensity,intensity,intensity));
+	}
+	
+	/** Returns the front light intensity. Its value will be between 0.0 and 1.0 */
+	public float getFrontLightIntensity()
+	{
+		Color3f color = new Color3f();
+		lightFront.getColor(color);
+		return color.x;
+	}
+
+	/** Sets the back light intensity level. Must be between 0.0 and 1.0 */
+	public void setBackLightIntensity(float intensity)
+	{
+		lightBack.setColor(new Color3f(intensity,intensity,intensity));
+	}
+
+	/** Returns the back light intensity. Its value will be between 0.0 and 1.0 */
+	public float getBackLightIntensity()
+	{
+		Color3f color = new Color3f();
+		lightBack.getColor(color);
+		return color.x;
+	}
+	
+	/** Sets the top light intensity level. Must be between 0.0 and 1.0 */
+	public void setTopLightIntensity(float intensity)
+	{
+		lightTop.setColor(new Color3f(intensity,intensity,intensity));
+	}
+
+	/** Returns the top light intensity. Its value will be between 0.0 and 1.0 */
+	public float getTopLightIntensity()
+	{
+		Color3f color = new Color3f();
+		lightTop.getColor(color);
+		return color.x;
+	}
+	
+	/** Sets the ambient light intensity level. Must be between 0.0 and 1.0 */
+	public void setAmbientLightIntensity(float intensity)
+	{
+		lightAmbient.setColor(new Color3f(intensity,intensity,intensity));
+	}
+
+	/** Returns the ambient light intensity. Its value will be between 0.0 and 1.0 */
+	public float getAmbientLightIntensity()
+	{
+		Color3f color = new Color3f();
+		lightAmbient.getColor(color);
+		return color.x;
+	}
+	
+	/** Enables or disables the frontal light */
+	public void enableFrontLight(boolean enable)
+	{
+		lightFront.setEnable(enable);
+	}
+	
+	/** Enables or disables the backwards light */
+	public void enableBackLight(boolean enable)
+	{
+		lightBack.setEnable(enable);
+	}
+	
+	/** Enables or disables the backwards light */
+	public void enableTopLight(boolean enable)
+	{
+		lightTop.setEnable(enable);
+	}
+	
+	/** Enables or disables the ambient light */
+	public void enableAmbientLight(boolean enable)
+	{
+		lightAmbient.setEnable(enable);
+	}
+}
+

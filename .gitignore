@@ -1,0 +1,10 @@
+# Entornos virtuales (cualquier subcarpeta)
+.venv/
+venv/
+env/
+ENV/
+
+# ThinkingCapSim: ignorar todo excepto sources/
+IASF Inteligencia Artificial para sistemas fisicos/ThinkingCapSim/*
+!IASF Inteligencia Artificial para sistemas fisicos/ThinkingCapSim/sources/
+!IASF Inteligencia Artificial para sistemas fisicos/ThinkingCapSim/sources/**
