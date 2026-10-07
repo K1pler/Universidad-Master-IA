@@ -30,12 +30,12 @@ import torch; torch.manual_seed(SEED)
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 
 CFG = dict(
-    n_img={"UFPR04": 300, "UFPR05": 300, "PUCPR": 150},  # imagenes por camara
+    n_img={"UFPR04": 500, "UFPR05": 500, "PUCPR": 250},  # imagenes por camara (RTX 2070S)
     patch=64,                 # lado del parche rectificado
-    max_patches_dino=6000,    # limite de parches para DINOv2 (CPU)
-    n_yolo_eval=60,           # imagenes de test para YOLO
-    n_sam_imgs=6,             # imagenes para SAM
-    finetune=True, ft_epochs=6, ft_imgsz=960, ft_n_train=100,
+    max_patches_dino=20000,   # limite de parches DINOv2 (GPU)
+    n_yolo_eval=120,          # imagenes de test para YOLO
+    n_sam_imgs=18,            # imagenes para SAM
+    finetune=True, ft_epochs=20, ft_imgsz=960, ft_n_train=300, ft_batch=8,
 )
 def imread(p):
     """cv2.imread falla con rutas no ASCII en Windows."""
@@ -45,6 +45,10 @@ ROOT = Path.cwd()
 DATA = ROOT / "data"
 OUT = ROOT / "outputs"; OUT.mkdir(exist_ok=True)
 print("device:", DEVICE, "| cwd:", ROOT)
+if DEVICE == "cuda":
+    print("GPU:", torch.cuda.get_device_name(0), "| VRAM:", round(torch.cuda.get_device_properties(0).total_memory/1e9, 1), "GB")
+else:
+    print("AVISO: ejecutando en CPU. Instala PyTorch con CUDA para aprovechar la GPU.")
 ''')
 
 md(r'''
@@ -364,21 +368,38 @@ for c_ in ["UFPR04", "UFPR05", "PUCPR"]:
     if m.sum(): print(c_, evaluate(f"YOLOv8n COCO [{c_}]", yt[m], yp[m]))
 ''')
 code(r'''
+# Grid sencillo conf / NMS-IoU / tau; se elige el mejor F1 en UFPR (no en PUCPR externa)
 rows = []
-for conf in [0.1, 0.25, 0.4]:
-    for iou in [0.3, 0.5, 0.7, 0.9]:
-        yt_, yp_, _ = run_yolo_eval(yolo_coco, VEH, conf, iou)
-        p, r_, f, _ = precision_recall_fscore_support(yt_, yp_, average="binary", zero_division=0)
-        rows.append(dict(conf=conf, nms_iou=iou, prec=p, rec=r_, f1=f))
-sens = pd.DataFrame(rows); print(sens.round(3).to_string(index=False))
-sns.heatmap(sens.pivot(index="conf", columns="nms_iou", values="f1"), annot=True, fmt=".3f", cmap="viridis"); plt.title("F1 de ocupacion de plaza vs conf / NMS-IoU"); plt.show()
+for conf in [0.15, 0.25, 0.35]:
+    for iou in [0.5, 0.7]:
+        for tau in [0.15, 0.25, 0.35]:
+            yt_, yp_, yc_ = run_yolo_eval(yolo_coco, VEH, conf, iou, tau=tau)
+            m = np.isin(yc_, ["UFPR04", "UFPR05"])
+            p, r_, f, _ = precision_recall_fscore_support(yt_[m], yp_[m], average="binary", zero_division=0)
+            rows.append(dict(conf=conf, nms_iou=iou, tau=tau, prec=p, rec=r_, f1=f))
+sens = pd.DataFrame(rows)
+print(sens.round(3).to_string(index=False))
+best_hp = sens.loc[sens.f1.idxmax()]
+YOLO_BEST = dict(conf=float(best_hp.conf), iou=float(best_hp.nms_iou), tau=float(best_hp.tau))
+print("mejor HP (UFPR):", YOLO_BEST, "F1=", round(float(best_hp.f1), 3))
+
+# re-eval por camara con HP elegidos
+yt_b, yp_b, yc_b = run_yolo_eval(yolo_coco, VEH, YOLO_BEST["conf"], YOLO_BEST["iou"], tau=YOLO_BEST["tau"])
+for c_ in ["UFPR04", "UFPR05", "PUCPR"]:
+    m = yc_b == c_
+    if m.sum(): print(c_, evaluate(f"YOLOv8n COCO* [{c_}]", yt_b[m], yp_b[m]))
+
+heat = sens.groupby(["conf", "nms_iou"], as_index=False)["f1"].max()
+sns.heatmap(heat.pivot(index="conf", columns="nms_iou", values="f1"), annot=True, fmt=".3f", cmap="viridis")
+plt.title("F1 max (sobre tau) en UFPR vs conf / NMS-IoU"); plt.show()
 ''')
 code(r'''
 YDIR = DATA/"yolo"
 def make_yolo_dataset():
+    if YDIR.exists(): shutil.rmtree(YDIR)
     for sub in ["train", "val"]:
         (YDIR/"images"/sub).mkdir(parents=True, exist_ok=True); (YDIR/"labels"/sub).mkdir(parents=True, exist_ok=True)
-    for sub, n in [("train", CFG["ft_n_train"]), ("val", 30)]:
+    for sub, n in [("train", CFG["ft_n_train"]), ("val", 40)]:
         g = man[(man.split == sub) & HAS_SP]; g = g.sample(min(n, len(g)), random_state=SEED)
         for r in g.itertuples():
             s = SP_BY_PATH[r.path]; img = imread(r.path); h, w = img.shape[:2]
@@ -392,11 +413,16 @@ def make_yolo_dataset():
 yolo_ft = None
 if CFG["finetune"]:
     make_yolo_dataset()
-    best = ROOT/"runs"/"pklot_ft"/"weights"/"best.pt"
+    run_name = f"pklot_ft_e{CFG['ft_epochs']}_n{CFG['ft_n_train']}_b{CFG['ft_batch']}"
+    best = ROOT/"runs"/run_name/"weights"/"best.pt"
     if not best.exists():
-        YOLO("yolov8n.pt").train(data=str(YDIR/"data.yaml"), epochs=CFG["ft_epochs"], imgsz=CFG["ft_imgsz"], batch=4, device=DEVICE,
-                                 seed=SEED, project=str(ROOT/"runs"), name="pklot_ft", exist_ok=True, workers=2, verbose=False, plots=False)
-    yolo_ft = YOLO(str(best))
+        YOLO("yolov8n.pt").train(
+            data=str(YDIR/"data.yaml"), epochs=CFG["ft_epochs"], imgsz=CFG["ft_imgsz"],
+            batch=CFG["ft_batch"], device=DEVICE, lr0=0.005,
+            seed=SEED, project=str(ROOT/"runs"), name=run_name, exist_ok=True,
+            workers=2, verbose=False, plots=False,
+        )
+    yolo_ft = YOLO(str(best)); print("fine-tune weights:", best)
 ''')
 code(r'''
 if yolo_ft is not None:
@@ -452,7 +478,9 @@ for r in tqdm(sam_imgs.itertuples(), total=len(sam_imgs)):
         ctr = c.mean(0); pm = poly_mask(c, img.shape)
         res = sam.predict(img, points=[[float(ctr[0]), float(ctr[1])]], labels=[1], verbose=False, device=DEVICE)[0]
         ys_s.append(o)
-        if res.masks is None: iou_list.append(0.0); continue
+        # mobile_sam a veces devuelve Masks vacío (data shape [0,...]), no solo None
+        if res.masks is None or getattr(res.masks, "data", None) is None or len(res.masks) == 0:
+            iou_list.append(0.0); continue
         mk = cv2.resize(res.masks.data[0].cpu().numpy().astype(np.uint8), (img.shape[1], img.shape[0]), interpolation=cv2.INTER_NEAREST)
         iou_list.append((mk & pm).sum()/max((mk | pm).sum(), 1))
 iou_arr, ys_s = np.array(iou_list), np.array(ys_s)

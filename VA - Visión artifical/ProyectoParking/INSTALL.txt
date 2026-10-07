@@ -1,8 +1,11 @@
 INSTALL
 =======
 1. Python 3.10+ ; pip install -r requirements.txt
+   GPU (RTX): despues, reinstala PyTorch CUDA, p.ej.
+   pip install --upgrade torch torchvision --index-url https://download.pytorch.org/whl/cu126
 2. Datos: PKLot (https://web.inf.ufpr.br/vri/databases/parking-lot-database/)
    Descargar http://www.inf.ufpr.br/vri/databases/PKLot.tar.gz (~4.9 GB) en data/PKLot.tar.gz.
    El notebook lo extrae solo (sin PKLotSegmented).
 3. Abrir ProyectoParking.ipynb con Jupyter y ejecutar las celdas en orden (semilla fija = 42).
    Pesos (yolov8n, mobile_sam, dinov2-small) se descargan en la primera ejecucion.
+   Si cambias CFG n_img, borra outputs/spaces.pkl y outputs/patches.npz para regenerar.
