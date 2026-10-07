@@ -1,9 +1,0 @@
-# Instala primero la versión de PyTorch/torchvision compatible con CUDA desde
-# https://pytorch.org/get-started/locally/ . Estas dependencias amplían requirements-base.txt.
-torch>=2.2
-torchvision>=0.17
-ultralytics>=8.2,<9
-joblib>=1.3
-scikit-learn>=1.3,<2
-# Ultralytics permite OpenCV 5, que elimina la API HOGDescriptor usada aquí.
-opencv-python>=4.8,<5
