@@ -1,0 +1,1075 @@
+--- PAGE 1 ---
+Deep	Learningpara	el	Procesamiento	de	Lenguaje	Natural,	Juan	A.	Botía2025/2026
+Deep	Learningpara	el	
+procesamiento	de	Lenguaje	Natural
+Tema	1.	Introducción	al	Deep	Learning.
+Redes	Neuronales
+JUANA.	BOTÍA
+CIENCIADELACOMPUTACIÓNEINTELIGENCIAARTIFICIAL
+DEPT.	INGENIERÍADELAINFORMACIÓNYLASCOMUNICACIONES
+Universidad	de	Murcia
+Máster	en	Inteligencia	Artificial
+2026/2027
+1
+--- PAGE 2 ---
+Deep	Learningpara	el	Procesamiento	de	Lenguaje	Natural,	Juan	A.	Botía2025/2026
+Índice de contenidos
+•Los problemas a resolver con esta herramienta
+•El perceptron
+•El perceptron multi-capa
+•Aplicación en problemas relacionados con texto
+•Optimización
+2
+--- PAGE 3 ---
+Deep	Learningpara	el	Procesamiento	de	Lenguaje	Natural,	Juan	A.	Botía2025/2026
+Empecemos por el principio: ¿cuál es el problema 
+que queremos resolver?
+Veámos una serie de preguntas ejemplo que 
+reflejan la tarea que afrontamos.
+3
+--- PAGE 4 ---
+Deep	Learningpara	el	Procesamiento	de	Lenguaje	Natural,	Juan	A.	Botía2025/2026
+¿Es éste un email spam?
+4
+--- PAGE 5 ---
+Deep	Learningpara	el	Procesamiento	de	Lenguaje	Natural,	Juan	A.	Botía2025/2026
+¿Son positivas o negativas estas 
+reviews sobre películas?
+•unbelievably disappointing 
+•Full of zany characters and richly applied satire, and some great 
+plot twists
+•this is the greatest screwball comedy ever filmed
+•It was pathetic. The worst part about it was the boxing scenes.
+5
+
+--- PAGE 6 ---
+Deep	Learningpara	el	Procesamiento	de	Lenguaje	Natural,	Juan	A.	Botía2025/2026
+¿En qué disciplina se encuadra este 
+paper?
+•Antogonists and Inhibitors
+•Blood Supply
+•Chemistry
+•Drug Therapy
+•Embryology
+•Epidemiology
+•…
+6
+MeSH Subject Category Hierarchy
+?
+MEDLINE Article
+
+--- PAGE 7 ---
+Deep	Learningpara	el	Procesamiento	de	Lenguaje	Natural,	Juan	A.	Botía2025/2026
+La tarea genérica se denomina 
+clasificación de textos, para…
+•Asignación de categorías, tópicos, géneros…
+•Detección de spam
+•Identificación de autores
+•Identificación de lenguaje
+•Análisis de sentimientos
+•…
+7
+--- PAGE 8 ---
+Deep	Learningpara	el	Procesamiento	de	Lenguaje	Natural,	Juan	A.	Botía2025/2026
+Tex t Classification: definición formal en forma 
+funcional
+•Input:
+• un documento d
+• un conjunto de clases fijo  C = {c1, c2,…, cJ}
+•Output: una de las clases c Î C
+8
+--- PAGE 9 ---
+Deep	Learningpara	el	Procesamiento	de	Lenguaje	Natural,	Juan	A.	Botía2025/2026
+Tex t Classification: medir del rendimiento de 
+un modelo en esta tarea
+•Supongamos una clase 
+P(ositiva) y una clase 
+N(negative)
+•Posibles resultados según la 
+celda 
+•TP (true positive), 
+•TN (true negative), 
+•FP (false positive), 
+•FN (false negative)
+9
+Un ejemplo de matriz de confusion (contraste entre predicciones del modelo y 
+respuestas verdaderas): 50 + 10 ejemplos positivos, 35 + 5 negativos
+--- PAGE 10 ---
+Deep	Learningpara	el	Procesamiento	de	Lenguaje	Natural,	Juan	A.	Botía2025/2026
+Método básico (baseline) : 
+reglas definidas a mano
+•Basadas en la aparición de palabras u otras propiedades, como
+• spam: black-list-address OR (“euros” AND “has sido seleccionado”)
+•La precision (tasa de aciertos) puede ser alta
+•Cuando el dominio es muy específico
+•Las reglas son definidas por expertos y se actualizan con frecuencia
+Pero…
+•La construcción de esas reglas y su mantenimiento es muy costoso
+•Un enfoque basado en lo literal y lo específico suele estar destinado al fracaso:
+•Cuando detectan algo no suelen equivocarse ("high-precision”)
+•Muchas cosas escapan a su detección (“low-recall”)
+10
+--- PAGE 11 ---
+Deep	Learningpara	el	Procesamiento	de	Lenguaje	Natural,	Juan	A.	Botía2025/2026
+Método Avanzado :
+Machine Learning Supervisado
+•Input: 
+•Un tipo de documento d
+•Un conjunto de clases fijo  C = {c1, c2,…, cj}
+•Un conjunto M de entrenamiento de m documentos 
+etiquetados a mano (d1, c1),....,(dm, cm)
+•Output: 
+•Un clasificador aprendido a partir de M, f:d à c
+11
+--- PAGE 12 ---
+Deep	Learningpara	el	Procesamiento	de	Lenguaje	Natural,	Juan	A.	Botía2025/2026
+•Existen muchos tipos de técnicas (asignatura ML)
+•Bayes naive,
+•Regresión logística,
+•K-vecinos más cercanos y
+•Neural networks…
+También Podemos usar LLMs, lo veremos más 
+adelante!
+•Fine-tuned como clasificadores
+•Usados para producir como salida una clasificación
+Método Avanzado :
+Machine Learning Supervisado
+12
+--- PAGE 13 ---
+Deep	Learningpara	el	Procesamiento	de	Lenguaje	Natural,	Juan	A.	Botía2025/2026
+Ahora que hemos visto el problema que queremos 
+resolver… ¿nos centramos en las redes neuronales?
+13
+--- PAGE 14 ---
+Deep	Learningpara	el	Procesamiento	de	Lenguaje	Natural,	Juan	A.	Botía2025/2026
+Esto es una neurona en tu cerebro
+14
+By BruceBlaus - Own work, CC BY 3.0, 
+https://commons.wikimedia.org/w/index.php?curid=28761830
+Deep	Learningpara	el	Procesamiento	de	Lenguaje	Natural2024/2025
+
+--- PAGE 15 ---
+Deep	Learningpara	el	Procesamiento	de	Lenguaje	Natural,	Juan	A.	Botía2025/2026
+Esto es una neurona artificialNo es tu cerebro!
+15
+Pesos
+Capa de entrada
+Suma ponderada
+Transformación no lineal
+Valor de salida
+Bias (sesgo)
+--- PAGE 16 ---
+Deep	Learningpara	el	Procesamiento	de	Lenguaje	Natural,	Juan	A.	Botía2025/2026
+Unidad neuronal
+•Realiza sumas ponderadas, más un sesgo (término b, de bias)
+•Pero no nos basta con usar z, sino que además le aplicamos una función 
+adicional no lineal *
+* Una función lineal era aquella  cuya variable dependiente tomaba grado cero o uno, representando un 
+punto o una línea recta, respectivamente
+16
+--- PAGE 17 ---
+Deep	Learningpara	el	Procesamiento	de	Lenguaje	Natural,	Juan	A.	Botía2025/2026
+Funciones de activación no lineales: 
+ejemplo
+17
+Sigmoide
+
+--- PAGE 18 ---
+Deep	Learningpara	el	Procesamiento	de	Lenguaje	Natural,	Juan	A.	Botía2025/2026
+Y esta es la función final computada 
+por la unidad neuronal
+18
+--- PAGE 19 ---
+Deep	Learningpara	el	Procesamiento	de	Lenguaje	Natural,	Juan	A.	Botía2025/2026
+Recordemos la neurona artificial!!
+19
+Pesos
+Capa de entrada
+Suma ponderada
+Transformación no lineal
+Valor de salida
+Bias (sesgo)
+--- PAGE 20 ---
+Deep	Learningpara	el	Procesamiento	de	Lenguaje	Natural,	Juan	A.	Botía2025/2026
+Y ahora un ejemplo
+•Supongamos que una neurona tiene la configuración actual 
+siguiente:
+•w = [0.2,0.3,0.9] 
+•b = 0.5 
+•Y toma la entrada x que sigue:
+•x = [0.5,0.6,0.1] 
+20
+
+--- PAGE 21 ---
+Deep	Learningpara	el	Procesamiento	de	Lenguaje	Natural,	Juan	A.	Botía2025/2026
+•Supongamos que una neurona tiene la configuración actual 
+siguiente:
+•w = [0.2,0.3,0.9] 
+•b = 0.5 
+•Y toma la entrada x que sigue:
+•x = [0.5,0.6,0.1] 
+Y ahora un ejemplo
+21
+
+--- PAGE 22 ---
+Deep	Learningpara	el	Procesamiento	de	Lenguaje	Natural,	Juan	A.	Botía2025/2026
+•Supongamos que una neurona tiene la configuración actual 
+siguiente:
+•w = [0.2,0.3,0.9] 
+•b = 0.5 
+•Y toma la entrada x que sigue:
+•x = [0.5,0.6,0.1] 
+Y ahora un ejemplo
+22
+
+--- PAGE 23 ---
+Deep	Learningpara	el	Procesamiento	de	Lenguaje	Natural,	Juan	A.	Botía2025/2026
+•Supongamos que una neurona tiene la configuración actual 
+siguiente:
+•w = [0.2,0.3,0.9] 
+•b = 0.5 
+•Y toma la entrada x que sigue:
+•x = [0.5,0.6,0.1] 
+Y ahora un ejemplo
+23
+
+--- PAGE 24 ---
+Deep	Learningpara	el	Procesamiento	de	Lenguaje	Natural,	Juan	A.	Botía2025/2026
+Otras funciones no lineales usadas
+24
+tanh ReLU
+Rectified Linear Unit
+La más común ahora
+sigmoidal
+--- PAGE 25 ---
+Deep	Learningpara	el	Procesamiento	de	Lenguaje	Natural,	Juan	A.	Botía2025/2026
+Ya sabemos cómo funciona una unidad básica. 
+Ahora ¿para qué sirven? ¿cómo las podemos usar?
+25
+--- PAGE 26 ---
+Deep	Learningpara	el	Procesamiento	de	Lenguaje	Natural,	Juan	A.	Botía2025/2026
+El problema del OR exclusivo (XOR)
+•Lo primero para lo que se pensó usarlas era como puertas lógicas y así manipular 
+conocimiento básico
+•Limitamos la entrada a 1’s (true) y 0’s (false)
+•Primera dificultad: necesitamos generar 1’s y 0’s a la salida
+Minsky and Papert (1969)
+26
+Primera dificultad: necesitamos 
+generar 1’s y 0’s a la salida
+--- PAGE 27 ---
+Deep	Learningpara	el	Procesamiento	de	Lenguaje	Natural,	Juan	A.	Botía2025/2026
+Adaptación de la unidad neuronal 
+para generar salidas binarias
+Simplificamos la definición
+• Limitamos la salida: binary output  (0 or 1)
+• Eliminamos la función de activación
+27
+--- PAGE 28 ---
+Deep	Learningpara	el	Procesamiento	de	Lenguaje	Natural,	Juan	A.	Botía2025/2026
+Operaciones AND y OR
+AND OR
+28
+--- PAGE 29 ---
+Deep	Learningpara	el	Procesamiento	de	Lenguaje	Natural,	Juan	A.	Botía2025/2026
+Y la negación?
+29
+•x=0: -1 x 0 + 0.5 = 0.5 >= 0 entonces y = 1  
+•X=1: -1 x 1 + 0.5 = -0.5 < 0 entonces  y = 0
+--- PAGE 30 ---
+Deep	Learningpara	el	Procesamiento	de	Lenguaje	Natural,	Juan	A.	Botía2025/2026
+Es imposible reproducir un XOR con un 
+perceptrón
+•Inténtalo tú mismo
+30
+--- PAGE 31 ---
+Deep	Learningpara	el	Procesamiento	de	Lenguaje	Natural,	Juan	A.	Botía2025/2026
+¿Por qué? Los perceptrones son máquinas 
+lineales
+Problema de clasificación linealmente separable Problema de clasificación no separable linealmente
+31
+--- PAGE 32 ---
+Deep	Learningpara	el	Procesamiento	de	Lenguaje	Natural,	Juan	A.	Botía2025/2026
+Máquinas lineales
+•La ecuación interna básica del perceptrón para variables x1 y x2, 
+es
+w1x1 + w2x2 + b = 0
+•Si queremos usarla para representar la línea, usamos x2 = 
+(−w1/w2)x1 + (−b/w2) 
+•Como hemos visto, la línea es una franja de decision (i.e. 
+decision boundary) 
+• 0 si la entrada cae a un lado de la línea
+• 1 si cae al otro lado
+32
+--- PAGE 33 ---
+Deep	Learningpara	el	Procesamiento	de	Lenguaje	Natural,	Juan	A.	Botía2025/2026
+Decision boundaries
+XOR no es una función linealmente separable!
+33
+--- PAGE 34 ---
+Deep	Learningpara	el	Procesamiento	de	Lenguaje	Natural,	Juan	A.	Botía2025/2026
+Solución al XOR, añadir más 
+perceptrones
+ReLU
+ReLU
+34
+--- PAGE 35 ---
+Deep	Learningpara	el	Procesamiento	de	Lenguaje	Natural,	Juan	A.	Botía2025/2026
+Interesante!!!
+La representación latente, h!!!
+(Primer ejemplo de aprendizaje:  capas ocultas aprenden formas útiles y 
+nuevas de representar los datos) 35
+
+--- PAGE 36 ---
+Deep	Learningpara	el	Procesamiento	de	Lenguaje	Natural,	Juan	A.	Botía2025/2026
+Simple Neural Networks and Neural Language 
+Models
+Redes neuronales feedforward
+36
+--- PAGE 37 ---
+Deep	Learningpara	el	Procesamiento	de	Lenguaje	Natural,	Juan	A.	Botía2025/2026
+Feedforward Neural Networks
+•También denominadas perceptrones multi-capa (o MLPs)  por razones 
+históricas
+37
+--- PAGE 38 ---
+Deep	Learningpara	el	Procesamiento	de	Lenguaje	Natural,	Juan	A.	Botía2025/2026
+Un perceptron con función de activación 
+sigmoidal puede verse como una red de 1 
+capa
+38
+w
+xnx1
+𝑦=𝜎(𝑤&𝑥+𝑏)
++1
+w1 wn b
+(y es un escalar)
+σOutput layer
+(σ node)
+Input layer
+vector x
+La capa de entrada no se cuenta como tal
+(vector)
+(escalar)
+….…. ….
+--- PAGE 39 ---
+Deep	Learningpara	el	Procesamiento	de	Lenguaje	Natural,	Juan	A.	Botía2025/2026
+ 39
+W
+xnx1
+Fully connected single layer network
+W es 
+una 
+matriz
+𝑦=softmax(𝑊𝑥+𝑏)
++1
+y es un vector
+y1 yn
+b es un vector
+b
+s s sOutput layer
+(softmax nodes)
+Input layer
+scalars
+Un perceptron con función de activación 
+sigmoidal puede verse como una red de 1 
+capa
+….…. ….
+--- PAGE 40 ---
+Deep	Learningpara	el	Procesamiento	de	Lenguaje	Natural,	Juan	A.	Botía2025/2026
+El softmax es una generalización de la 
+sigmoide
+•Para un vector z de dimensiones k, el softmax es:
+•Example:
+40
+--- PAGE 41 ---
+Deep	Learningpara	el	Procesamiento	de	Lenguaje	Natural,	Juan	A.	Botía2025/2026
+Red de dos capas con salida escalar
+U
+W
+xnx1
+ +1
+y es un 
+escalar
+b
+hidden units
+(σ node)
+Input layer
+(vector)
+Output layer
+(σ node)
+Could be ReLU
+Or tanh
+z=𝑈ℎ
+𝑦=𝜎(𝑧)
+41
+….…. ….
+--- PAGE 42 ---
+Deep	Learningpara	el	Procesamiento	de	Lenguaje	Natural,	Juan	A.	Botía2025/2026
+U
+W
+xnx1
+ +1
+b
+hidden units
+(σ node)
+Input layer
+(vector)
+Output layer
+(σ node)
+i
+j
+Wji
+vector
+z=𝑈ℎ
+𝑦=𝜎(𝑧)
+Red de dos capas con salida escalar
+y es un 
+escalar
+42
+….…. ….
+--- PAGE 43 ---
+Deep	Learningpara	el	Procesamiento	de	Lenguaje	Natural,	Juan	A.	Botía2025/2026
+U
+W
+xnx1
+ +1
+b
+hidden units
+(σ node)
+Input layer
+(vector)
+Output layer
+(σ node)
+Could be ReLU
+Or tanh
+z=𝑈ℎ
+𝑦=𝜎(𝑧)
+Red de dos capas con salida escalar
+y es un 
+escalar
+43
+….…. ….
+--- PAGE 44 ---
+Deep	Learningpara	el	Procesamiento	de	Lenguaje	Natural,	Juan	A.	Botía2025/2026
+U
+W
+xnx1
+ +1
+b
+hidden units
+(σ node)
+Input layer
+(vector)
+Output layer
+(σ node)
+Could be ReLU
+Or tanh
+z=𝑈ℎ
+𝑦=softmax(𝑧)
+Red de dos capas con salida softmax
+y es un 
+vector
+44
+….…. ….
+--- PAGE 45 ---
+Deep	Learningpara	el	Procesamiento	de	Lenguaje	Natural,	Juan	A.	Botía2025/2026
+Notación multi-capa (siempre la misma 
+operación, independiente de la capa)
+W[1]
+xnx1 +1
+b[1]
+i
+j
+W[2]
+b[2]
+𝑧["]=𝑊["]𝑎[$]+𝑏["]
+𝑎[$]
+𝑎["]=𝑔"(𝑧")
+𝑧[%]=𝑊[%]𝑎["]+𝑏[%]
+𝑎[%]=𝑔%(𝑧%)
+𝑦=𝑎[%]
+sigmoide / softmax
+ReLU
+45
+….…. ….
+--- PAGE 46 ---
+Deep	Learningpara	el	Procesamiento	de	Lenguaje	Natural,	Juan	A.	Botía2025/2026
+ 46
+Notación multi-capa: siempre la misma 
+operación, independiente de la capa
+--- PAGE 47 ---
+Deep	Learningpara	el	Procesamiento	de	Lenguaje	Natural,	Juan	A.	Botía2025/2026
+Disfrazar el sesgo para simplificar la 
+notación
+•Con una sencilla modificación, vamos a conseguir una notación mucho 
+más sencilla, que trata a todos los pesos, incluido el sesgo, por igual
+•Solo un cambio en la notación
+1. Añadimos un nodo dummy a0=1 (sin efecto) a cada capa
+2. El sesgo de la capa será su peso, w0
+3. Para la capa de entrada, a[0]0=1, 
+• Además a[1]0=1 , a[2]0=1,…
+47
+--- PAGE 48 ---
+Deep	Learningpara	el	Procesamiento	de	Lenguaje	Natural,	Juan	A.	Botía2025/2026
+•En lugar de:     Hacemos:
+x= x1, x2, …, xn0 x= x0, x1, x2, …, xn0
+Disfrazar el sesgo para simplificar la 
+notación
+48
+--- PAGE 49 ---
+Deep	Learningpara	el	Procesamiento	de	Lenguaje	Natural,	Juan	A.	Botía2025/2026
+En lugar de:                     Hacemos:
+Disfrazar el sesgo para simplificar la 
+notación
+49
+--- PAGE 50 ---
+Deep	Learningpara	el	Procesamiento	de	Lenguaje	Natural,	Juan	A.	Botía2025/2026
+Simple Neural 
+Networks and 
+Neural Language 
+Models
+Para entenderlas mejor
+https://playground.tensorflow.org
+50
+--- PAGE 51 ---
+Deep	Learningpara	el	Procesamiento	de	Lenguaje	Natural,	Juan	A.	Botía2025/2026
+Simple Neural 
+Networks and 
+Neural Language 
+Models
+Aplicando redes neuronales feed forward a 
+tareas de procesamiento de lenguaje natural
+51
+--- PAGE 52 ---
+Deep	Learningpara	el	Procesamiento	de	Lenguaje	Natural,	Juan	A.	Botía2025/2026
+Simple Neural 
+Networks and 
+Neural Language 
+Models
+Aplicando redes neuronales feed forward a 
+tareas de procesamiento de lenguaje natural
+Análisis de sentimientos
+52
+--- PAGE 53 ---
+Deep	Learningpara	el	Procesamiento	de	Lenguaje	Natural,	Juan	A.	Botía2025/2026
+Tarea de clasificación: análisis de 
+sentimientos
+•Las características a la entrada de la red tendrían la 
+siguiente definición
+•La salida será 0 (review negativa) ó 1 (positiva)
+U
+W
+xnx1
+σ
+53
+•Doc se refiere al documento
+•Positive lexicon es el léxico de 
+referencia de palabras positivas
+•Análogamente para el negative lexicon
+•1st and 2nd pronouns se refiere a 
+primera y segunda persona
+--- PAGE 54 ---
+Deep	Learningpara	el	Procesamiento	de	Lenguaje	Natural,	Juan	A.	Botía2025/2026
+Ejemplo
+54
+
+--- PAGE 55 ---
+Deep	Learningpara	el	Procesamiento	de	Lenguaje	Natural,	Juan	A.	Botía2025/2026
+Redes feedforward para clasificación simple
+•Obtenemos el MLP añadiendo una CAPA OCULTA al perceptron + sigmoide
+• Con esto modelamos interacciones no lineales entre los predictors de entrada
+• Esto puede, o no, ser conveniente para una mejor resolución del problema
+55
+U
+W
+xnx1
+f1 f2 fn
+55
+Perceptrón + sigmoidal
+(regresión logística)
+MLP de dos capas σ
+W
+xnx1
+f1 f2 fn
+σ
+--- PAGE 56 ---
+Deep	Learningpara	el	Procesamiento	de	Lenguaje	Natural,	Juan	A.	Botía2025/2026
+Aprendiendo los predictores 
+automáticamente (representation learning)
+•En la solución anterior, los predictores (x1, …, x6) 
+estaban diseñados a mano, no los hemos cuestionado
+•Uno de los grandes avances del deep learning es el 
+aprendizaje de representaciones, en donde la red 
+neuronal aprende por sí misma la mejor 
+representación (embedding) del espacio de 
+predictores
+56
+U
+W
+xnx1
+e1 e2 en
+σ
+
+--- PAGE 57 ---
+Deep	Learningpara	el	Procesamiento	de	Lenguaje	Natural,	Juan	A.	Botía2025/2026
+ 57
+¿Cómo sería una red neuronal aplicadas a 
+tareas NLP usando embeddings?
+
+--- PAGE 58 ---
+Deep	Learningpara	el	Procesamiento	de	Lenguaje	Natural,	Juan	A.	Botía2025/2026
+Pero… los documentos tienen 
+diferentes tamaños!!!
+•El ejemplo que hemos usado assume tamaño 3
+•No es demasiado útil
+•Algunas soluciones (lo mejor vendrá después)
+1.Transformar la entrada a una longitud fija
+• Si la original es más corta, rellenar con ceros
+• Truncar si es más larga
+2. En lugar de usar embeddings por palabras, crear un embedding por 
+sentencia
+• Usar la media de los embeddings de todas sus palabras
+• Usar el máximo, componente a componente, de los embeddings de todas las 
+palabras
+58
+
+--- PAGE 59 ---
+Deep	Learningpara	el	Procesamiento	de	Lenguaje	Natural,	Juan	A.	Botía2025/2026
+Simple Neural 
+Networks and 
+Neural Language 
+Models
+Aplicando redes neuronales feed forward a 
+tareas de procesamiento de lenguaje natural
+Modelos de lenguaje
+59
+--- PAGE 60 ---
+Deep	Learningpara	el	Procesamiento	de	Lenguaje	Natural,	Juan	A.	Botía2025/2026
+Modelos de lenguaje neuronales
+•Modelos de lenguaje: estiman la probabilidad de la siguiente palabra 
+en una secuencia
+Los modelos de lenguaje neuronales actuales se basan en transformers, 
+que ya veremos. 
+Los MLPs pueden ser casi tan buenos como los transformers, pero solo 
+casi
+60
+--- PAGE 61 ---
+Deep	Learningpara	el	Procesamiento	de	Lenguaje	Natural,	Juan	A.	Botía2025/2026
+•Tarea: predecir la siguiente palabra wt dada la secuencia de palabras 
+anteriores wt-1, wt-2, wt-3, …
+•Problema: en este caso, las secuencias tienen una longitud variable.
+•Solución: usamos ventanas deslizantes de longitud fija (N)
+61
+Modelos de lenguaje neuronales simples
+--- PAGE 62 ---
+Deep	Learningpara	el	Procesamiento	de	Lenguaje	Natural,	Juan	A.	Botía2025/2026
+ 62
+Modelo de lenguaje neuronal
+--- PAGE 63 ---
+Deep	Learningpara	el	Procesamiento	de	Lenguaje	Natural,	Juan	A.	Botía2025/2026
+Simple Neural 
+Networks and 
+Neural Language 
+Models
+Entrenando redes neuronales, una overview
+63
+--- PAGE 64 ---
+Deep	Learningpara	el	Procesamiento	de	Lenguaje	Natural,	Juan	A.	Botía2025/2026
+¿De dónde salen los W’s?
+•En los problemas de clasificación: 
+• Conocemos la etiqueta correcta y (0, 1) para cada x. 
+• Pero nuestra red neuronal produce una estimación, +𝑦	
+•Lo que buscamos es fijar los w y b tal que la distancia entre nuestra 
+estimación +𝑦(i) y el y(i) verdadero se minimice (tienda a 0) 
+• Necesitamos estimar la distancia mediante una función de pérdida 
+(loss function)
+• Necesitamos también un algoritmo para buscar los w, b que 
+minimicen dicha función.
+64
+--- PAGE 65 ---
+Deep	Learningpara	el	Procesamiento	de	Lenguaje	Natural,	Juan	A.	Botía2025/2026
+Nuestro sistema de machine learning 
+necesita de dos componentes
+•Una función de pérdida:
+•Entropía cruzada (cross-entropy loss)
+•Un algoritmo de optimización:
+•Gradiente descendente estocástico 
+(stochastic gradient descent, SGD)
+65
+--- PAGE 66 ---
+Deep	Learningpara	el	Procesamiento	de	Lenguaje	Natural,	Juan	A.	Botía2025/2026
+Pérdida de una sola observación
+•Objetivo del proceso de entrenamiento: maximizar la probabilidad 
+p(y|x) 
+•Dado que solo hay dos posibles respuestas a generar por el clasificador, 
+la probabilidad p(y|x) del clasificador se deduce de la binomial, y viene 
+dada por
+•Si y=1, esa expresión es +𝑦	
+•Si 0, esa expresión es 1- +𝑦	
+•Si aplicamos logaritmos a esa expresión, tenemos
+66
+--- PAGE 67 ---
+Deep	Learningpara	el	Procesamiento	de	Lenguaje	Natural,	Juan	A.	Botía2025/2026
+•Pero como estamos definiendo una pérdida, lo 
+transformamos en algo que minimizar (cambiamos el signo)
+•Cross-entropy loss
+Objetivo: maximizar la probabilidad de que el clasificador 
+genere la etiqueta correcta, p(y|x) 
+Maximizar:
+Minimizar:
+Función de pérdida total
+67
+--- PAGE 68 ---
+Deep	Learningpara	el	Procesamiento	de	Lenguaje	Natural,	Juan	A.	Botía2025/2026
+Ejemplo, análisis de sentimientos y un 
+perceptron con salida sigmoidal
+68
+¿Es una review positiva (0) o negativa (1)?
+W
+xnx1
+f1 f2 fn
+σ
+--- PAGE 69 ---
+Deep	Learningpara	el	Procesamiento	de	Lenguaje	Natural,	Juan	A.	Botía2025/2026
+Recordemos los predictores
+69
+
+--- PAGE 70 ---
+Deep	Learningpara	el	Procesamiento	de	Lenguaje	Natural,	Juan	A.	Botía2025/2026
+Ejemplo, análisis de sentimientos y un 
+perceptron con salida sigmoidal
+70
+
+--- PAGE 71 ---
+Deep	Learningpara	el	Procesamiento	de	Lenguaje	Natural,	Juan	A.	Botía2025/2026
+Nuestra neurona sigmoidal totalmente 
+definida
+•Supongamos que los pesos W , b de nuestro perceptrón + sigmoide son 
+w=[2.5, -5.0, -1.2, 0.5, 2.0, 0.7], b=0.1
+71
+W
+xnx1
+f1 f2 fn
+σ
+--- PAGE 72 ---
+Deep	Learningpara	el	Procesamiento	de	Lenguaje	Natural,	Juan	A.	Botía2025/2026
+Vamos a verlo dependiendo del valor verdadero de la 
+etiqueta del documento
+•Si el valor verdadero es y=1.  ¿Cómo de bien lo hace nuestro modelo?
+•Bastante bien, ¿qué pérdida genera eso?
+72
+
+--- PAGE 73 ---
+Deep	Learningpara	el	Procesamiento	de	Lenguaje	Natural,	Juan	A.	Botía2025/2026
+•Supongamos que el valor verdadero fuera y=0.  
+•¿Qué pérdida generaría?
+•Suponiendo que la review fuera positiva, nuestro modelo se comporta bastante bien, al 
+menos para este documento. Pues genera una pérdida menor (0.36) cuando acierta que 
+cuando se equivoca (1.2)
+Vamos a verlo dependiendo del valor verdadero de la 
+etiqueta del document (y 2)
+73
+
+--- PAGE 74 ---
+Deep	Learningpara	el	Procesamiento	de	Lenguaje	Natural,	Juan	A.	Botía2025/2026
+Gradiente descendente estocástico 
+(SGD), buscando los pesos adecuados
+74
+--- PAGE 75 ---
+Deep	Learningpara	el	Procesamiento	de	Lenguaje	Natural,	Juan	A.	Botía2025/2026
+Objetivo: minimizar la pérdida
+•Como ahora los parámetros de nuestro modelo (los pesos) son muy 
+importantes pues son los que tenemos que variar para optimizar la función 
+de pérdida, necesitamos expresarlos de alguna forma
+•Los denotamos con 𝛳=(w,b)
+•Ahora, la salida de nuestro modelo, +𝑦	, la representaremos con f (x; θ ) así 
+los parámetros son visibles en la notación
+•Ahora, nuestro problema se reduce a esta expression, que se traduce en 
+hallar el vector (o matriz) de valores 𝛳 que minimiza LCE promediado en los 
+m ejemplos de entrenamiento
+• 
+75
+--- PAGE 76 ---
+Deep	Learningpara	el	Procesamiento	de	Lenguaje	Natural,	Juan	A.	Botía2025/2026
+SGD (Stochastic Gradient Descent): el 
+algoritmo más conocido del deep learning
+76
+--- PAGE 77 ---
+Deep	Learningpara	el	Procesamiento	de	Lenguaje	Natural,	Juan	A.	Botía2025/2026
+Explicación intuitiva del SGD
+•¿Cómo llego al río desde cualquier punto del cañón (X) si no 
+dispongo del mapa?
+x
+Heurística: miro a mi 
+alrededor 360∘, 
+encuentro la 
+dirección de bajada 
+más pronunciada y 
+sigo por ese camino.
+77
+--- PAGE 78 ---
+Deep	Learningpara	el	Procesamiento	de	Lenguaje	Natural,	Juan	A.	Botía2025/2026
+Si queremos usar SGD, tenemos que 
+transformar nuestro problema en un 
+problema basado en curvas de nivel
+78
+--- PAGE 79 ---
+Deep	Learningpara	el	Procesamiento	de	Lenguaje	Natural,	Juan	A.	Botía2025/2026
+•La función de pérdida definirá nuestras curvas de nivel
+•Mayor profundidad, más cercanos al río, menos pérdida
+•Idealmente, la función de pérdida debería ser convexa
+•un único mínimo
+•Empecemos donde empecemos nuestro “descenso al río”, siempre 
+llegaremos al mínimo
+•La función de pérdida depende del modelo que usemos, 
+recordemos que
+Vuelta a la función de pérdida
+79
+--- PAGE 80 ---
+Deep	Learningpara	el	Procesamiento	de	Lenguaje	Natural,	Juan	A.	Botía2025/2026
+Vamos a visualizar el problema para un solo 
+peso w
+Q: Dado el valor de w actual, ¿lo aumentamos o lo disminuimos?
+A: Deberíamos actualizar w en el sentido inverso a la pendiente de la función
+80
+--- PAGE 81 ---
+Deep	Learningpara	el	Procesamiento	de	Lenguaje	Natural,	Juan	A.	Botía2025/2026
+Como la pendiente es 
+negativa, aumentamos el w 
+(incrementamos una cantidad 
+positiva w)
+Vamos a visualizar el problema para un solo 
+peso w
+Q: Dado el valor de w actual, ¿lo aumentamos o lo disminuimos?
+A: Deberíamos actualizar w en el sentido inverso a la pendiente de la función
+81
+--- PAGE 82 ---
+Deep	Learningpara	el	Procesamiento	de	Lenguaje	Natural,	Juan	A.	Botía2025/2026
+Vamos a visualizar el problema para un solo 
+peso w
+Q: Dado el valor de w actual, ¿lo aumentamos o lo disminuimos?
+A: Deberíamos actualizar w en el sentido inverso a la pendiente de la función
+Como la pendiente es 
+negativa, aumentamos el w 
+(incrementamos una cantidad 
+positiva w) 82
+--- PAGE 83 ---
+Deep	Learningpara	el	Procesamiento	de	Lenguaje	Natural,	Juan	A.	Botía2025/2026
+Está claro: la clave es calcular la pendiente 
+de la función de pérdida!
+83
+--- PAGE 84 ---
+Deep	Learningpara	el	Procesamiento	de	Lenguaje	Natural,	Juan	A.	Botía2025/2026
+Para eso usamos el operador de 
+gradiente
+El gradiente de una función de n variables es un 
+vector que apunta en la dirección del mayor 
+incremento del valor de la función, 
+Viene dado por la derivada parcial de la pérdida con respecto a 
+esas n variables (los pesos)
+&
+&’𝐿(𝑓𝑥;𝑤,𝑦) 
+84
+https://en.wikipedia.org/wiki/Gradient
+--- PAGE 85 ---
+Deep	Learningpara	el	Procesamiento	de	Lenguaje	Natural,	Juan	A.	Botía2025/2026
+Para eso usamos el operador de 
+gradiente
+•El algoritmo SGD 
+•Usa el gradiente de la función de pérdida en el instante actual
+•Viene dado por los pesos de nuestra red neuronal
+•Los aplica a los propios pesos para moverlos en el espacio
+•Hay que determinar qué cantidad de movimiento aplicar
+85
+--- PAGE 86 ---
+Deep	Learningpara	el	Procesamiento	de	Lenguaje	Natural,	Juan	A.	Botía2025/2026
+Si damos el salto a dos dimensiones, 
+la visualización sería
+•El vector de pesos de la 
+red nos sitúa en el 
+punto rojo
+•La función de pérdida es 
+la superficie (convexa) 
+azul
+•Solo tiene un peso y un 
+sesgo
+•SGD variaría los dos 
+hasta intentar llegar al 
+fondo de la convexidad
+ 86
+--- PAGE 87 ---
+Deep	Learningpara	el	Procesamiento	de	Lenguaje	Natural,	Juan	A.	Botía2025/2026
+En los modelos de redes deep, los 
+gradientes…
+•Son mucho más grandes, de miles, cientos de miles, millones, cientos 
+de millones de parámetros en los LLMs (Large Language Models)
+•En cada dimensión I, para wi el componente correspondiente del 
+gradiente i indica la pendiente de la función de pérdida con respecto a 
+esa variable (en qué medida un cambio pequeño en wi influencia la 
+funciuón de pérdida global L) 
+•Dicha pendiente a nivel de componente es una derivada parcial ∂, con 
+respect al peso, ∂wi 
+•Por tanto, el gradiente final se define como un vector de derivadas 
+parciales
+87
+--- PAGE 88 ---
+Deep	Learningpara	el	Procesamiento	de	Lenguaje	Natural,	Juan	A.	Botía2025/2026
+Entonces, la función de pérdida es n-
+dimensional, siendo n muy grande
+88
+--- PAGE 89 ---
+Deep	Learningpara	el	Procesamiento	de	Lenguaje	Natural,	Juan	A.	Botía2025/2026
+El gradiente es entonces el Jacobiano
+Retomamos la expression de !𝑦	como f (x; θ ) : 
+Así, la expression final de actualización de pesos θ es simple
+89
+--- PAGE 90 ---
+Deep	Learningpara	el	Procesamiento	de	Lenguaje	Natural,	Juan	A.	Botía2025/2026
+El algoritmos SGD
+90
+--- PAGE 91 ---
+Deep	Learningpara	el	Procesamiento	de	Lenguaje	Natural,	Juan	A.	Botía2025/2026
+SGD: un ejemplo
+91
+--- PAGE 92 ---
+Deep	Learningpara	el	Procesamiento	de	Lenguaje	Natural,	Juan	A.	Botía2025/2026
+Ejemplo de aplicación de GD
+•Vamos a ver cómo se aplica un paso
+•Usaremos un ejemplo, de análisis de sentimientos, con un ejemplo 
+positive (y=1)
+•Dos predictores:
+x1 = 3    (número de palabras positivas en nuestro lexicón) 
+x2 = 2    (número de palabras negativas en nuestro lexicón) 
+Asumimos entonces 3 parametros (2 w’w, 1 b) todos 0 en Θ0 :
+w1 = w2 = b  = 0 
+η = 0.1 
+92
+--- PAGE 93 ---
+Deep	Learningpara	el	Procesamiento	de	Lenguaje	Natural,	Juan	A.	Botía2025/2026
+•El paso de actualización de pesos es:
+•Siendo
+•Y el vector gradiente tiene 3 dimensiones:
+w1 = w2 = b  = 0;    
+x1 = 3;   x2 = 2   
+Ejemplo de aplicación de GD
+93
+--- PAGE 94 ---
+Deep	Learningpara	el	Procesamiento	de	Lenguaje	Natural,	Juan	A.	Botía2025/2026
+•El paso de actualización de pesos es:
+•Siendo
+•Y el vector gradiente tiene 3 dimensiones:
+w1 = w2 = b  = 0;    
+x1 = 3;   x2 = 2   
+Ejemplo de aplicación de GD
+94
+--- PAGE 95 ---
+Deep	Learningpara	el	Procesamiento	de	Lenguaje	Natural,	Juan	A.	Botía2025/2026
+•El paso de actualización de pesos es:
+•Siendo
+•Y el vector gradiente tiene 3 dimensiones:
+w1 = w2 = b  = 0;    
+x1 = 3;   x2 = 2   
+Ejemplo de aplicación de GD
+95
+--- PAGE 96 ---
+Deep	Learningpara	el	Procesamiento	de	Lenguaje	Natural,	Juan	A.	Botía2025/2026
+•El paso de actualización de pesos es:
+•Siendo
+•Y el vector gradiente tiene 3 dimensiones:
+w1 = w2 = b  = 0;    
+x1 = 3;   x2 = 2   
+Ejemplo de aplicación de GD
+96
+--- PAGE 97 ---
+Deep	Learningpara	el	Procesamiento	de	Lenguaje	Natural,	Juan	A.	Botía2025/2026
+•El paso de actualización de pesos es:
+•Siendo
+•Y el vector gradiente tiene 3 dimensiones:
+w1 = w2 = b  = 0;    
+x1 = 3;   x2 = 2   
+Ejemplo de aplicación de GD
+97
+--- PAGE 98 ---
+Deep	Learningpara	el	Procesamiento	de	Lenguaje	Natural,	Juan	A.	Botía2025/2026
+η = 0.1; 
+Una vez calculado el vector gradiente, obtenemos el nuevo vector de parámetros θ1
+moviendo θ0en la dirección opuesta del gradiente, pero solo la fracción que nos permite el 
+learningrate(10%): 
+Ejemplo de aplicación de GD
+98
+--- PAGE 99 ---
+Deep	Learningpara	el	Procesamiento	de	Lenguaje	Natural,	Juan	A.	Botía2025/2026
+η = 0.1; 
+Una vez calculado el vector gradiente, obtenemos el nuevo vector de parámetros θ1
+moviendo θ0en la dirección opuesta del gradiente, pero solo la fracción que nos permite el 
+learningrate(10%): 
+Ejemplo de aplicación de GD
+99
+--- PAGE 100 ---
+Deep	Learningpara	el	Procesamiento	de	Lenguaje	Natural,	Juan	A.	Botía2025/2026
+η = 0.1; 
+Una vez calculado el vector gradiente, obtenemos el nuevo vector de parámetros θ1
+moviendo θ0en la dirección opuesta del gradiente, pero solo la fracción que nos permite el 
+learningrate(10%): 
+Ejemplo de aplicación de GD
+100
+--- PAGE 101 ---
+Deep	Learningpara	el	Procesamiento	de	Lenguaje	Natural,	Juan	A.	Botía2025/2026
+η = 0.1; 
+Una vez calculado el vector gradiente, obtenemos el nuevo vector de parámetros θ1
+moviendo θ0en la dirección opuesta del gradiente, pero solo la fracción que nos permite el 
+learningrate(10%): 
+Ejemplo de aplicación de GD
+101
+--- PAGE 102 ---
+Deep	Learningpara	el	Procesamiento	de	Lenguaje	Natural,	Juan	A.	Botía2025/2026
+Entrenando una red de dos capas
+102
+U
+W
+xnx1
+Respuesta del sistema !𝑦 
+Respuesta correcta 𝑦
+Ejemplo de 
+entrenamiento
+Función de pérdida L(!𝑦,𝑦)
+Paso hacia delante
+(forward pass)
+Paso hacia atrás
+(backward pass)
+--- PAGE 103 ---
+Deep	Learningpara	el	Procesamiento	de	Lenguaje	Natural,	Juan	A.	Botía2025/2026
+•Para cada ejemplo de entrenamiento (𝑥,𝑦)
+•Ejecuta paso hacia delante (forward computation) para 
+obtener !𝑦
+•Ejecuta paso hacia atrás (backward computation) para 
+actualizer los pesos w: 
+•Para cada nodo de salida
+•Calcular pérdida 𝐿	entre 𝑦 e %𝑦
+•Para cada peso 𝑤	desde la capa occulta a la de salida
+•Actualizar peso su parte de la pérdida
+•Para cada nodo oculto
+•Calcular su contribución a la pérdida entre 𝑦 e %𝑦
+•Para cada 𝑤	desde la capa de entrada a la oculta
+•Actualizar peso según su parte de la contribución 103
+Entrenando una red de dos capas
+--- PAGE 104 ---
+Deep	Learningpara	el	Procesamiento	de	Lenguaje	Natural,	Juan	A.	Botía2025/2026
+Conclusiones 
+•Los perceptrones tienen una capacidad de 
+representación limitada
+•Aplilar perceptrones añadiendo funciones de activación 
+a cada capa es útil para nuestros propósitos
+•Podemos entrenar redes neuronales con esas unidades 
+y funciones de activación si las conectamos fully 
+connected y feed forward
+104
+--- PAGE 105 ---
+Deep	Learningpara	el	Procesamiento	de	Lenguaje	Natural,	Juan	A.	Botía2025/2026
+Referencias
+Para preparar el material de  esta asignatura se ha usado el libro de la 
+asignatura de Jurafsky & Martin (Speech and Language Processing), 
+capítulos 4 y 7
+https://web.stanford.edu/~jurafsky/slp3/
+105
