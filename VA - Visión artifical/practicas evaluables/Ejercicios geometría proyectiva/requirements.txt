@@ -1,0 +1,11 @@
+# Núcleo del ejercicio (NumPy puro)
+numpy>=1.24
+matplotlib>=3.7
+pillow>=10.0
+
+# Para ejecutar el notebook
+notebook>=7.0
+ipykernel>=6.25
+
+# Solo para el punto 6 (comparación con OpenCV)
+opencv-python>=4.8
